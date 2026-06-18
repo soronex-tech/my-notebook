@@ -1,0 +1,679 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="theme-color" content="#ffffff">
+<title>筆記本</title>
+<style>
+  :root {
+    --bg: #f7f6f3;
+    --surface: #ffffff;
+    --border: #e4e2dc;
+    --text: #1a1a18;
+    --text-muted: #888680;
+    --accent: #4a46d4;
+    --accent-light: #eeedfe;
+    --danger: #d84040;
+    --radius: 10px;
+    --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #141412;
+      --surface: #1e1e1c;
+      --border: #2e2e2a;
+      --text: #e8e6e0;
+      --text-muted: #666460;
+      --accent: #7b78f0;
+      --accent-light: #26215c;
+    }
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  body { font-family: var(--font); background: var(--bg); color: var(--text); height: 100dvh; display: flex; flex-direction: column; overflow: hidden; }
+
+  /* ── 頂部列 ── */
+  .topbar {
+    display: flex; align-items: center; gap: 10px;
+    padding: 12px 16px; background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .app-title { font-size: 17px; font-weight: 600; color: var(--text); flex: 1; }
+  .icon-btn {
+    width: 36px; height: 36px; border-radius: 8px; border: none;
+    background: transparent; cursor: pointer; display: flex;
+    align-items: center; justify-content: center; color: var(--text-muted);
+    transition: background .15s;
+  }
+  .icon-btn:hover { background: var(--bg); }
+  .icon-btn svg { width: 20px; height: 20px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+  /* ── 搜尋列 ── */
+  .search-bar {
+    padding: 10px 16px; background: var(--surface);
+    border-bottom: 1px solid var(--border); flex-shrink: 0;
+  }
+  .search-wrap { position: relative; }
+  .search-wrap svg {
+    position: absolute; left: 10px; top: 50%; transform: translateY(-50%);
+    width: 16px; height: 16px; stroke: var(--text-muted); fill: none;
+    stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; pointer-events: none;
+  }
+  .search-input {
+    width: 100%; padding: 8px 10px 8px 34px;
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: 8px; font-size: 14px; color: var(--text);
+    font-family: var(--font); outline: none; transition: border-color .15s;
+  }
+  .search-input:focus { border-color: var(--accent); }
+  .search-input::placeholder { color: var(--text-muted); }
+
+  /* ── 筆記列表 ── */
+  .notes-list {
+    flex: 1; overflow-y: auto; padding: 12px 16px;
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .note-card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 14px;
+    cursor: pointer; transition: border-color .15s, transform .1s;
+    position: relative;
+  }
+  .note-card:hover { border-color: var(--accent); }
+  .note-card:active { transform: scale(0.99); }
+  .note-card.selected { border-color: var(--accent); }
+  .note-title {
+    font-size: 15px; font-weight: 600; color: var(--text);
+    margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .note-preview {
+    font-size: 13px; color: var(--text-muted); line-height: 1.5;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  }
+  .note-meta {
+    display: flex; align-items: center; gap: 8px;
+    margin-top: 8px; font-size: 11px; color: var(--text-muted);
+  }
+  .note-has-media {
+    display: inline-flex; align-items: center; gap: 3px;
+  }
+  .note-has-media svg { width: 11px; height: 11px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  .highlight { background: #fef08a; color: #713f12; border-radius: 2px; padding: 0 1px; }
+  @media (prefers-color-scheme: dark) { .highlight { background: #713f12; color: #fef08a; } }
+
+  .empty-state {
+    text-align: center; padding: 60px 20px; color: var(--text-muted);
+  }
+  .empty-state p:first-child { font-size: 15px; margin-bottom: 6px; color: var(--text); }
+  .empty-state p { font-size: 13px; }
+
+  /* ── 新增按鈕 ── */
+  .fab {
+    position: fixed; bottom: 24px; right: 20px;
+    width: 52px; height: 52px; border-radius: 50%;
+    background: var(--accent); color: #fff; border: none;
+    cursor: pointer; display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 2px 12px rgba(74,70,212,.35); transition: transform .15s, box-shadow .15s;
+    z-index: 10;
+  }
+  .fab:hover { transform: scale(1.06); box-shadow: 0 4px 20px rgba(74,70,212,.45); }
+  .fab:active { transform: scale(0.97); }
+  .fab svg { width: 22px; height: 22px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+  /* ── 編輯器面板 ── */
+  .editor-panel {
+    position: fixed; inset: 0; background: var(--surface);
+    display: flex; flex-direction: column; z-index: 100;
+    transform: translateX(100%); transition: transform .25s cubic-bezier(.4,0,.2,1);
+  }
+  .editor-panel.open { transform: translateX(0); }
+  .editor-topbar {
+    display: flex; align-items: center; gap: 10px;
+    padding: 12px 16px; border-bottom: 1px solid var(--border); flex-shrink: 0;
+  }
+  .editor-topbar .back-btn {
+    display: flex; align-items: center; gap: 4px;
+    background: none; border: none; cursor: pointer;
+    color: var(--accent); font-size: 15px; font-family: var(--font); padding: 0;
+  }
+  .editor-topbar .back-btn svg { width: 18px; height: 18px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .editor-actions { margin-left: auto; display: flex; gap: 6px; }
+  .btn-delete { color: var(--danger) !important; }
+  .title-input {
+    width: 100%; padding: 16px 16px 8px;
+    font-size: 20px; font-weight: 700; color: var(--text);
+    font-family: var(--font); border: none; background: transparent; outline: none;
+  }
+  .title-input::placeholder { color: var(--text-muted); font-weight: 400; }
+  .body-input {
+    flex: 1; padding: 8px 16px 16px; font-size: 15px; color: var(--text);
+    font-family: var(--font); border: none; background: transparent; outline: none;
+    resize: none; line-height: 1.7; overflow-y: auto;
+  }
+  .body-input::placeholder { color: var(--text-muted); }
+
+  /* ── 媒體預覽區 ── */
+  .media-strip {
+    padding: 0 16px 12px; display: flex; gap: 8px;
+    overflow-x: auto; flex-shrink: 0;
+    scrollbar-width: none;
+  }
+  .media-strip::-webkit-scrollbar { display: none; }
+  .media-thumb {
+    flex-shrink: 0; width: 80px; height: 80px; border-radius: 8px;
+    object-fit: cover; border: 1px solid var(--border); cursor: pointer; background: var(--bg);
+  }
+  .media-thumb-video {
+    position: relative; width: 80px; height: 80px; flex-shrink: 0; cursor: pointer;
+  }
+  .media-thumb-video video {
+    width: 100%; height: 100%; object-fit: cover; border-radius: 8px; border: 1px solid var(--border);
+  }
+  .media-thumb-video::after {
+    content: ''; position: absolute; inset: 0; display: flex;
+    align-items: center; justify-content: center;
+    background: rgba(0,0,0,.3); border-radius: 8px;
+  }
+  .play-icon {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%);
+    width: 28px; height: 28px; background: rgba(255,255,255,.9); border-radius: 50%;
+    display: flex; align-items: center; justify-content: center; pointer-events: none;
+  }
+  .play-icon::after { content: ''; border-left: 9px solid #333; border-top: 5px solid transparent; border-bottom: 5px solid transparent; margin-left: 2px; }
+
+  /* ── 媒體工具列 ── */
+  .media-toolbar {
+    display: flex; align-items: center; gap: 6px;
+    padding: 8px 16px; border-top: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .media-toolbar .icon-btn { color: var(--text-muted); }
+  .char-count { margin-left: auto; font-size: 12px; color: var(--text-muted); }
+  #file-input { display: none; }
+
+  /* ── 媒體燈箱 ── */
+  .lightbox {
+    position: fixed; inset: 0; background: rgba(0,0,0,.92);
+    z-index: 200; display: flex; align-items: center; justify-content: center;
+    opacity: 0; pointer-events: none; transition: opacity .2s;
+  }
+  .lightbox.open { opacity: 1; pointer-events: all; }
+  .lightbox img, .lightbox video {
+    max-width: 95vw; max-height: 90dvh; border-radius: 8px; object-fit: contain;
+  }
+  .lightbox-close {
+    position: absolute; top: 16px; right: 16px;
+    background: rgba(255,255,255,.15); border: none; color: #fff;
+    width: 36px; height: 36px; border-radius: 50%; cursor: pointer;
+    display: flex; align-items: center; justify-content: center; font-size: 18px;
+  }
+
+  /* ── 同步狀態 ── */
+  .sync-dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: #22c55e; display: inline-block; margin-left: 4px;
+    transition: background .3s;
+  }
+  .sync-dot.syncing { background: #f59e0b; animation: pulse .8s ease-in-out infinite; }
+  .sync-dot.error { background: var(--danger); }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+  /* ── Toast ── */
+  .toast {
+    position: fixed; bottom: 90px; left: 50%; transform: translateX(-50%) translateY(20px);
+    background: #1a1a18; color: #fff; padding: 10px 18px;
+    border-radius: 20px; font-size: 13px; opacity: 0;
+    transition: opacity .2s, transform .2s; pointer-events: none; z-index: 300;
+    white-space: nowrap;
+  }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+</style>
+</head>
+<body>
+
+<!-- 頂部列 -->
+<div class="topbar">
+  <span class="app-title">筆記本</span>
+  <span class="sync-dot" id="syncDot" title="同步狀態"></span>
+  <button class="icon-btn" id="syncBtn" title="與 Google Drive 同步" onclick="syncWithDrive()">
+    <svg viewBox="0 0 24 24"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+  </button>
+  <button class="icon-btn" id="driveBtn" title="連結 Google Drive" onclick="connectDrive()">
+    <svg viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+  </button>
+</div>
+
+<!-- 搜尋列 -->
+<div class="search-bar">
+  <div class="search-wrap">
+    <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+    <input class="search-input" id="searchInput" type="search" placeholder="搜尋筆記…" oninput="onSearch(this.value)">
+  </div>
+</div>
+
+<!-- 筆記列表 -->
+<div class="notes-list" id="notesList"></div>
+
+<!-- 新增按鈕 -->
+<button class="fab" onclick="openEditor(null)" title="新增筆記">
+  <svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+</button>
+
+<!-- 編輯器面板 -->
+<div class="editor-panel" id="editorPanel">
+  <div class="editor-topbar">
+    <button class="back-btn" onclick="closeEditor()">
+      <svg viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg>
+      返回
+    </button>
+    <div class="editor-actions">
+      <button class="icon-btn btn-delete" id="deleteBtn" onclick="deleteNote()" title="刪除">
+        <svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+      </button>
+    </div>
+  </div>
+  <input class="title-input" id="titleInput" type="text" placeholder="標題">
+  <textarea class="body-input" id="bodyInput" placeholder="開始記錄…"></textarea>
+  <div class="media-strip" id="mediaStrip"></div>
+  <div class="media-toolbar">
+    <button class="icon-btn" onclick="document.getElementById('file-input').click()" title="附加圖片或影片">
+      <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+    </button>
+    <input type="file" id="file-input" accept="image/*,video/*" multiple onchange="handleFileInput(this)">
+    <span class="char-count" id="charCount">0 字</span>
+  </div>
+</div>
+
+<!-- 媒體燈箱 -->
+<div class="lightbox" id="lightbox" onclick="closeLightbox()">
+  <button class="lightbox-close" onclick="closeLightbox()">✕</button>
+  <div id="lightboxContent"></div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<script>
+// ── 資料模型 ──
+let notes = [];
+let currentNoteId = null;
+let searchQuery = '';
+let saveTimer = null;
+let driveConnected = false;
+let gapi = null;
+
+// ── 本地儲存 ──
+function loadLocal() {
+  try {
+    const raw = localStorage.getItem('notebook_notes');
+    notes = raw ? JSON.parse(raw) : [];
+  } catch { notes = []; }
+}
+
+function saveLocal() {
+  try { localStorage.setItem('notebook_notes', JSON.stringify(notes)); } catch {}
+}
+
+// ── 工具 ──
+function genId() { return Date.now().toString(36) + Math.random().toString(36).slice(2,6); }
+
+function fmtDate(ts) {
+  const d = new Date(ts);
+  const now = new Date();
+  const diff = now - d;
+  if (diff < 60000) return '剛才';
+  if (diff < 3600000) return Math.floor(diff/60000) + ' 分鐘前';
+  if (diff < 86400000) return Math.floor(diff/3600000) + ' 小時前';
+  const mm = d.getMonth()+1, dd = d.getDate();
+  if (d.getFullYear() === now.getFullYear()) return mm+'/'+dd;
+  return d.getFullYear()+'/'+mm+'/'+dd;
+}
+
+function showToast(msg, dur=2200) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), dur);
+}
+
+function setSyncState(state) {
+  const dot = document.getElementById('syncDot');
+  dot.className = 'sync-dot' + (state === 'syncing' ? ' syncing' : state === 'error' ? ' error' : '');
+  dot.title = state === 'syncing' ? '同步中…' : state === 'error' ? '同步失敗' : '已同步';
+}
+
+// ── 搜尋（substring） ──
+function highlightMatch(text, q) {
+  if (!q) return escHtml(text);
+  const idx = text.toLowerCase().indexOf(q.toLowerCase());
+  if (idx === -1) return escHtml(text);
+  return escHtml(text.slice(0, idx))
+    + '<mark class="highlight">' + escHtml(text.slice(idx, idx+q.length)) + '</mark>'
+    + escHtml(text.slice(idx+q.length));
+}
+
+function escHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function filteredNotes() {
+  if (!searchQuery) return [...notes].sort((a,b) => b.updatedAt - a.updatedAt);
+  const q = searchQuery.toLowerCase();
+  return notes
+    .filter(n => n.title.toLowerCase().includes(q) || n.body.toLowerCase().includes(q))
+    .sort((a,b) => b.updatedAt - a.updatedAt);
+}
+
+function onSearch(val) {
+  searchQuery = val;
+  renderList();
+}
+
+// ── 渲染列表 ──
+function renderList() {
+  const list = document.getElementById('notesList');
+  const filtered = filteredNotes();
+  if (filtered.length === 0) {
+    list.innerHTML = searchQuery
+      ? `<div class="empty-state"><p>沒有符合的筆記</p><p>試試其他關鍵字</p></div>`
+      : `<div class="empty-state"><p>還沒有筆記</p><p>點右下角 + 開始記錄</p></div>`;
+    return;
+  }
+  const q = searchQuery;
+  list.innerHTML = filtered.map(n => {
+    const hasImg = n.media && n.media.some(m => m.type.startsWith('image'));
+    const hasVid = n.media && n.media.some(m => m.type.startsWith('video'));
+    const preview = n.body.replace(/\n/g, ' ').slice(0, 120);
+    return `<div class="note-card" onclick="openEditor('${n.id}')">
+      <div class="note-title">${highlightMatch(n.title || '（無標題）', q)}</div>
+      <div class="note-preview">${highlightMatch(preview, q)}</div>
+      <div class="note-meta">
+        <span>${fmtDate(n.updatedAt)}</span>
+        ${hasImg ? `<span class="note-has-media"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg></span>` : ''}
+        ${hasVid ? `<span class="note-has-media"><svg viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg></span>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// ── 編輯器 ──
+function openEditor(id) {
+  currentNoteId = id;
+  const panel = document.getElementById('editorPanel');
+  const titleInput = document.getElementById('titleInput');
+  const bodyInput = document.getElementById('bodyInput');
+  const deleteBtn = document.getElementById('deleteBtn');
+
+  if (id) {
+    const note = notes.find(n => n.id === id);
+    if (!note) return;
+    titleInput.value = note.title;
+    bodyInput.value = note.body;
+    renderMediaStrip(note.media || []);
+    deleteBtn.style.display = '';
+  } else {
+    titleInput.value = '';
+    bodyInput.value = '';
+    renderMediaStrip([]);
+    deleteBtn.style.display = 'none';
+  }
+  updateCharCount();
+  panel.classList.add('open');
+  setTimeout(() => { if (!titleInput.value) titleInput.focus(); else bodyInput.focus(); }, 300);
+}
+
+function closeEditor() {
+  autoSave();
+  document.getElementById('editorPanel').classList.remove('open');
+  currentNoteId = null;
+  renderList();
+}
+
+function autoSave() {
+  const title = document.getElementById('titleInput').value.trim();
+  const body = document.getElementById('bodyInput').value;
+  if (!title && !body) return;
+
+  if (currentNoteId) {
+    const note = notes.find(n => n.id === currentNoteId);
+    if (note) { note.title = title; note.body = body; note.updatedAt = Date.now(); }
+  } else {
+    const newNote = { id: genId(), title, body, media: [], createdAt: Date.now(), updatedAt: Date.now() };
+    notes.unshift(newNote);
+    currentNoteId = newNote.id;
+    document.getElementById('deleteBtn').style.display = '';
+  }
+  saveLocal();
+  scheduleDriveSync();
+}
+
+function deleteNote() {
+  if (!currentNoteId) return;
+  if (!confirm('確定要刪除這則筆記嗎？')) return;
+  notes = notes.filter(n => n.id !== currentNoteId);
+  saveLocal();
+  scheduleDriveSync();
+  closeEditor();
+  showToast('已刪除');
+}
+
+// ── 自動儲存（300ms debounce）──
+document.getElementById('titleInput').addEventListener('input', debounceSave);
+document.getElementById('bodyInput').addEventListener('input', () => { debounceSave(); updateCharCount(); });
+
+function debounceSave() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(autoSave, 300);
+}
+
+function updateCharCount() {
+  const len = document.getElementById('bodyInput').value.length;
+  document.getElementById('charCount').textContent = len + ' 字';
+}
+
+// ── 媒體處理 ──
+function handleFileInput(input) {
+  const files = Array.from(input.files);
+  if (!currentNoteId) autoSave();
+  const note = notes.find(n => n.id === currentNoteId);
+  if (!note) return;
+  let loaded = 0;
+  files.forEach(file => {
+    const reader = new FileReader();
+    reader.onload = e => {
+      const mediaItem = { id: genId(), type: file.type, name: file.name, data: e.target.result };
+      if (!note.media) note.media = [];
+      note.media.push(mediaItem);
+      loaded++;
+      if (loaded === files.length) {
+        note.updatedAt = Date.now();
+        saveLocal();
+        renderMediaStrip(note.media);
+        scheduleDriveSync();
+      }
+    };
+    reader.readAsDataURL(file);
+  });
+  input.value = '';
+}
+
+function renderMediaStrip(mediaItems) {
+  const strip = document.getElementById('mediaStrip');
+  if (!mediaItems || mediaItems.length === 0) { strip.innerHTML = ''; return; }
+  strip.innerHTML = mediaItems.map((m, i) => {
+    if (m.type.startsWith('image')) {
+      return `<img class="media-thumb" src="${m.data}" onclick="openLightbox(${i})" title="${escHtml(m.name)}" loading="lazy">`;
+    } else if (m.type.startsWith('video')) {
+      return `<div class="media-thumb-video" onclick="openLightbox(${i})">
+        <video src="${m.data}" muted playsinline preload="metadata"></video>
+        <div class="play-icon"></div>
+      </div>`;
+    }
+    return '';
+  }).join('');
+}
+
+function openLightbox(idx) {
+  const note = notes.find(n => n.id === currentNoteId);
+  if (!note || !note.media[idx]) return;
+  const m = note.media[idx];
+  const lb = document.getElementById('lightbox');
+  const content = document.getElementById('lightboxContent');
+  if (m.type.startsWith('image')) {
+    content.innerHTML = `<img src="${m.data}" alt="${escHtml(m.name)}">`;
+  } else {
+    content.innerHTML = `<video src="${m.data}" controls autoplay playsinline style="max-width:95vw;max-height:85dvh;border-radius:8px"></video>`;
+  }
+  lb.classList.add('open');
+}
+
+function closeLightbox() {
+  document.getElementById('lightbox').classList.remove('open');
+  document.getElementById('lightboxContent').innerHTML = '';
+}
+
+// ── Google Drive 同步 ──
+const DRIVE_FILE_NAME = 'notebook_data.json';
+const SCOPES = 'https://www.googleapis.com/auth/drive.appdata';
+let tokenClient = null;
+let driveFileId = null;
+let syncScheduled = false;
+
+function scheduleDriveSync() {
+  if (!driveConnected) return;
+  if (syncScheduled) return;
+  syncScheduled = true;
+  setTimeout(() => { syncScheduled = false; uploadToDrive(); }, 2000);
+}
+
+function connectDrive() {
+  if (!window.google) {
+    showToast('請稍候，正在載入 Google 服務…');
+    loadGoogleAPI().then(connectDrive);
+    return;
+  }
+  initTokenClient();
+  tokenClient.requestAccessToken();
+}
+
+function loadGoogleAPI() {
+  return new Promise(resolve => {
+    if (window.google) { resolve(); return; }
+    const s = document.createElement('script');
+    s.src = 'https://accounts.google.com/gsi/client';
+    s.onload = resolve;
+    document.head.appendChild(s);
+    const g = document.createElement('script');
+    g.src = 'https://apis.google.com/js/api.js';
+    g.onload = () => { window.gapi.load('client', () => { resolve(); }); };
+    document.head.appendChild(g);
+  });
+}
+
+function initTokenClient() {
+  if (tokenClient) return;
+  tokenClient = google.accounts.oauth2.initTokenClient({
+    client_id: '859465746094-ed5q19s7hh6kh2hkqi2cjg4es2c0j8kv.apps.googleusercontent.com',
+    scope: SCOPES,
+    callback: async (resp) => {
+      if (resp.error) { showToast('連線失敗：' + resp.error); setSyncState('error'); return; }
+      driveConnected = true;
+      document.getElementById('driveBtn').title = '已連結 Google Drive';
+      showToast('Google Drive 已連結');
+      setSyncState('syncing');
+      await initDriveClient();
+      await syncWithDrive();
+    }
+  });
+}
+
+async function initDriveClient() {
+  await gapi.client.init({ discoveryDocs: ['https://www.googleapis.com/discovery/v1/apis/drive/v3/rest'] });
+}
+
+async function syncWithDrive() {
+  if (!driveConnected) { connectDrive(); return; }
+  setSyncState('syncing');
+  try {
+    const remoteData = await fetchFromDrive();
+    if (remoteData) {
+      const remote = JSON.parse(remoteData);
+      notes = mergNotes(notes, remote);
+      saveLocal();
+      renderList();
+    }
+    await uploadToDrive();
+    setSyncState('ok');
+    showToast('同步完成');
+  } catch(e) {
+    setSyncState('error');
+    showToast('同步失敗，請稍後再試');
+    console.error(e);
+  }
+}
+
+async function fetchFromDrive() {
+  const res = await gapi.client.drive.files.list({
+    spaces: 'appDataFolder',
+    q: `name='${DRIVE_FILE_NAME}'`,
+    fields: 'files(id,name)'
+  });
+  const files = res.result.files;
+  if (!files || files.length === 0) return null;
+  driveFileId = files[0].id;
+  const content = await gapi.client.drive.files.get({ fileId: driveFileId, alt: 'media' });
+  return typeof content.body === 'string' ? content.body : JSON.stringify(content.result);
+}
+
+async function uploadToDrive() {
+  const data = JSON.stringify(notes);
+  const boundary = '-------314159265358979323846';
+  const meta = driveFileId
+    ? null
+    : JSON.stringify({ name: DRIVE_FILE_NAME, parents: ['appDataFolder'] });
+  if (driveFileId) {
+    await gapi.client.request({
+      path: `/upload/drive/v3/files/${driveFileId}`,
+      method: 'PATCH',
+      params: { uploadType: 'media' },
+      headers: { 'Content-Type': 'application/json' },
+      body: data
+    });
+  } else {
+    const body =
+      `--${boundary}\r\nContent-Type: application/json\r\n\r\n${meta}\r\n` +
+      `--${boundary}\r\nContent-Type: application/json\r\n\r\n${data}\r\n--${boundary}--`;
+    const res = await gapi.client.request({
+      path: '/upload/drive/v3/files',
+      method: 'POST',
+      params: { uploadType: 'multipart' },
+      headers: { 'Content-Type': `multipart/related; boundary="${boundary}"` },
+      body
+    });
+    driveFileId = res.result.id;
+  }
+}
+
+function mergNotes(local, remote) {
+  const map = {};
+  [...remote, ...local].forEach(n => {
+    if (!map[n.id] || n.updatedAt > map[n.id].updatedAt) map[n.id] = n;
+  });
+  return Object.values(map).sort((a,b) => b.updatedAt - a.updatedAt);
+}
+
+// ── 鍵盤快捷鍵 ──
+document.addEventListener('keydown', e => {
+  if ((e.metaKey || e.ctrlKey) && e.key === 'n') { e.preventDefault(); openEditor(null); }
+  if (e.key === 'Escape' && document.getElementById('editorPanel').classList.contains('open')) { closeEditor(); }
+  if ((e.metaKey || e.ctrlKey) && e.key === 'f') { e.preventDefault(); document.getElementById('searchInput').focus(); }
+});
+
+// ── 初始化 ──
+loadLocal();
+renderList();
+</script>
+</body>
+</html>
