@@ -703,8 +703,7 @@ async function pushToDrive() {
         `--${boundary}`,
         'Content-Type: application/json', '', data,
         `--${boundary}--`
-      ].join('
-');
+      ].join('\r\n');
       const res = await fetch(
         'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart',
         {
@@ -761,13 +760,7 @@ async function saveNote() {
 
       if (remoteNote && remoteNote.updatedAt > baseline) {
         // 衝突：雲端比我開啟時更新了
-        const choice = confirm(
-          '⚠️ 此筆記在你編輯期間已被更新。
-
-' +
-          '按「確定」→ 覆蓋雲端版本
-按「取消」→ 另存為副本'
-        );
+        const choice = confirm('⚠️ 此筆記在你編輯期間已被更新。\n\n按「確定」→ 覆蓋雲端版本\n按「取消」→ 另存為副本');
         if (!choice) {
           // 另存新檔
           const copy = {
