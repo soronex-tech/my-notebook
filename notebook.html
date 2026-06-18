@@ -304,7 +304,7 @@ let currentNoteId = null;
 let searchQuery = '';
 let saveTimer = null;
 let driveConnected = false;
-let gapi = null;
+
 
 // ── 本地儲存 ──
 function loadLocal() {
@@ -539,164 +539,129 @@ function closeLightbox() {
 const DRIVE_FILE_NAME = 'notebook_data.json';
 const SCOPES = 'https://www.googleapis.com/auth/drive.appdata';
 let tokenClient = null;
+let accessToken = null;
 let driveFileId = localStorage.getItem('notebook_drive_file_id') || null;
 let syncScheduled = false;
-let gapiReady = false;
 
 function scheduleDriveSync() {
   if (!driveConnected) return;
   if (syncScheduled) return;
   syncScheduled = true;
-  setTimeout(() => { syncScheduled = false; uploadToDrive(); }, 2000);
+  setTimeout(() => { syncScheduled = false; driveSync(); }, 2000);
 }
 
-// 循序載入：GSI 先，gapi 後，全部等好才 resolve
-function loadScript(src) {
+// 只載入 GSI，完全不用 gapi.js
+function loadGSI() {
   return new Promise((resolve, reject) => {
+    if (window.google && window.google.accounts) { resolve(); return; }
     const s = document.createElement('script');
-    s.src = src;
+    s.src = 'https://accounts.google.com/gsi/client';
     s.onload = resolve;
-    s.onerror = () => reject(new Error('Failed to load: ' + src));
+    s.onerror = reject;
     document.head.appendChild(s);
   });
 }
 
-function loadGapiClient() {
-  return new Promise((resolve, reject) => {
-    window.gapi.load('client', { callback: resolve, onerror: reject });
-  });
-}
-
-async function loadGoogleAPI() {
-  if (gapiReady) return;
-  await loadScript('https://accounts.google.com/gsi/client');
-  await loadScript('https://apis.google.com/js/api.js');
-  await loadGapiClient();
-  await window.gapi.client.init({
-    discoveryDocs: ['https://www.googleapis.com/discovery/v1/apis/drive/v3/rest']
-  });
-  gapiReady = true;
-}
-
 async function connectDrive() {
   setSyncState('syncing');
-  showToast('載入 Google 服務中…');
-  try {
-    await loadGoogleAPI();
-  } catch(e) {
-    showToast('載入 Google 服務失敗，請重試');
-    setSyncState('error');
-    return;
+  showToast('載入中…');
+  try { await loadGSI(); } catch(e) {
+    showToast('載入失敗，請重試'); setSyncState('error'); return;
   }
-
   if (!tokenClient) {
     tokenClient = google.accounts.oauth2.initTokenClient({
       client_id: '859465746094-ed5q19s7hh6kh2hkqi2cjg4es2c0j8kv.apps.googleusercontent.com',
       scope: SCOPES,
       callback: async (resp) => {
-        if (resp.error) {
-          showToast('連線失敗：' + resp.error);
-          setSyncState('error');
-          return;
-        }
-        // Access token 已注入 gapi.client，直接同步
+        if (resp.error) { showToast('授權失敗：' + resp.error); setSyncState('error'); return; }
+        accessToken = resp.access_token;
         driveConnected = true;
-        document.getElementById('driveBtn').title = '已連結 Google Drive';
+        document.getElementById('driveBtn').title = '已連結';
+        showToast('已連結 Google Drive');
         await syncWithDrive();
       }
     });
   }
-  tokenClient.requestAccessToken({ prompt: driveConnected ? '' : 'consent' });
+  tokenClient.requestAccessToken({ prompt: '' });
+}
+
+// 所有 Drive 操作全部用 fetch 直打 REST API
+async function driveGet(path, params = {}) {
+  const url = new URL('https://www.googleapis.com/drive/v3/' + path);
+  Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
+  const res = await fetch(url, { headers: { 'Authorization': 'Bearer ' + accessToken } });
+  if (!res.ok) throw new Error('Drive GET failed: ' + res.status);
+  return res.json();
+}
+
+async function driveGetMedia(fileId) {
+  const res = await fetch(
+    `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`,
+    { headers: { 'Authorization': 'Bearer ' + accessToken } }
+  );
+  if (!res.ok) throw new Error('Drive media GET failed: ' + res.status);
+  return res.text();
 }
 
 async function syncWithDrive() {
   if (!driveConnected) { connectDrive(); return; }
   setSyncState('syncing');
   try {
-    const remoteData = await fetchFromDrive();
-    if (remoteData) {
-      const remote = JSON.parse(remoteData);
-      notes = mergeNotes(notes, remote);
-      saveLocal();
-      renderList();
+    // 1. 找檔案 ID（優先用快取）
+    if (!driveFileId) {
+      const result = await driveGet('files', {
+        spaces: 'appDataFolder',
+        q: `name='${DRIVE_FILE_NAME}' and trashed=false`,
+        fields: 'files(id)',
+        pageSize: '1'
+      });
+      if (result.files && result.files.length > 0) {
+        driveFileId = result.files[0].id;
+        localStorage.setItem('notebook_drive_file_id', driveFileId);
+      }
     }
-    await uploadToDrive();
+
+    // 2. 拉取遠端資料（有的話）並合併
+    if (driveFileId) {
+      const raw = await driveGetMedia(driveFileId);
+      try {
+        const remote = JSON.parse(raw);
+        notes = mergeNotes(notes, remote);
+        saveLocal();
+        renderList();
+      } catch(e) { console.warn('Remote JSON parse failed', e); }
+    }
+
+    // 3. 上傳本地資料
+    const data = JSON.stringify(notes);
+    if (driveFileId) {
+      // 已有檔案：PATCH 覆蓋
+      await fetch(`https://www.googleapis.com/upload/drive/v3/files/${driveFileId}?uploadType=media`, {
+        method: 'PATCH',
+        headers: { 'Authorization': 'Bearer ' + accessToken, 'Content-Type': 'application/json' },
+        body: data
+      });
+    } else {
+      // 第一次：multipart 建立新檔案
+      const boundary = 'nb_' + Date.now();
+      const meta = JSON.stringify({ name: DRIVE_FILE_NAME, parents: ['appDataFolder'] });
+      const body = `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${meta}\r\n--${boundary}\r\nContent-Type: application/json\r\n\r\n${data}\r\n--${boundary}--`;
+      const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer ' + accessToken, 'Content-Type': `multipart/related; boundary=${boundary}` },
+        body
+      });
+      const json = await res.json();
+      driveFileId = json.id;
+      localStorage.setItem('notebook_drive_file_id', driveFileId);
+    }
+
     setSyncState('ok');
     showToast('同步完成');
   } catch(e) {
     setSyncState('error');
     showToast('同步失敗，請稍後再試');
     console.error('Drive sync error:', e);
-  }
-}
-
-async function fetchFromDrive() {
-  // 優先用快取的 file ID，省掉搜尋這步
-  if (!driveFileId) {
-    const res = await window.gapi.client.drive.files.list({
-      spaces: 'appDataFolder',
-      q: `name='${DRIVE_FILE_NAME}' and trashed=false`,
-      fields: 'files(id,name)',
-      pageSize: 1
-    });
-    const files = res.result.files;
-    if (!files || files.length === 0) return null;
-    driveFileId = files[0].id;
-    localStorage.setItem('notebook_drive_file_id', driveFileId);
-  }
-
-  const content = await window.gapi.client.drive.files.get({
-    fileId: driveFileId,
-    alt: 'media'
-  });
-  // gapi 會把 JSON 自動解析成物件，要轉回字串
-  return typeof content.body === 'string'
-    ? content.body
-    : JSON.stringify(content.result);
-}
-
-async function uploadToDrive() {
-  const data = JSON.stringify(notes);
-  const token = window.gapi.client.getToken();
-  if (!token) throw new Error('No access token');
-
-  if (driveFileId) {
-    // 已有檔案：直接 PATCH 覆蓋內容
-    await fetch(`https://www.googleapis.com/upload/drive/v3/files/${driveFileId}?uploadType=media`, {
-      method: 'PATCH',
-      headers: {
-        'Authorization': 'Bearer ' + token.access_token,
-        'Content-Type': 'application/json'
-      },
-      body: data
-    });
-  } else {
-    // 第一次：用 multipart 同時建立檔案 + 上傳內容
-    const boundary = 'notebook_boundary_' + Date.now();
-    const meta = JSON.stringify({ name: DRIVE_FILE_NAME, parents: ['appDataFolder'] });
-    const body = [
-      `--${boundary}`,
-      'Content-Type: application/json; charset=UTF-8',
-      '',
-      meta,
-      `--${boundary}`,
-      'Content-Type: application/json',
-      '',
-      data,
-      `--${boundary}--`
-    ].join('\r\n');
-
-    const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
-      method: 'POST',
-      headers: {
-        'Authorization': 'Bearer ' + token.access_token,
-        'Content-Type': `multipart/related; boundary=${boundary}`
-      },
-      body
-    });
-    const json = await res.json();
-    driveFileId = json.id;
-    localStorage.setItem('notebook_drive_file_id', driveFileId);
   }
 }
 
