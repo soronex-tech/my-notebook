@@ -538,8 +538,9 @@ function closeLightbox() {
 const DRIVE_FILE_NAME = 'notebook_data.json';
 const SCOPES = 'https://www.googleapis.com/auth/drive.appdata';
 let tokenClient = null;
-let driveFileId = null;
+let driveFileId = localStorage.getItem('notebook_drive_file_id') || null;
 let syncScheduled = false;
+let gapiReady = false;
 
 function scheduleDriveSync() {
   if (!driveConnected) return;
@@ -548,49 +549,72 @@ function scheduleDriveSync() {
   setTimeout(() => { syncScheduled = false; uploadToDrive(); }, 2000);
 }
 
-function connectDrive() {
-  if (!window.google) {
-    showToast('請稍候，正在載入 Google 服務…');
-    loadGoogleAPI().then(connectDrive);
+// 分兩步載入：先載 GSI，再載 gapi，完全等好才 resolve
+function loadGoogleAPI() {
+  return new Promise((resolve, reject) => {
+    if (gapiReady) { resolve(); return; }
+
+    let gsiLoaded = false;
+    let gapiLoaded = false;
+    function checkBothLoaded() {
+      if (gsiLoaded && gapiLoaded) { gapiReady = true; resolve(); }
+    }
+
+    // 1. Google Identity Services（給 OAuth 用）
+    const gsiScript = document.createElement('script');
+    gsiScript.src = 'https://accounts.google.com/gsi/client';
+    gsiScript.onload = () => { gsiLoaded = true; checkBothLoaded(); };
+    gsiScript.onerror = reject;
+    document.head.appendChild(gsiScript);
+
+    // 2. gapi client（給 Drive API 用）
+    const gapiScript = document.createElement('script');
+    gapiScript.src = 'https://apis.google.com/js/api.js';
+    gapiScript.onload = () => {
+      window.gapi.load('client', {
+        callback: () => {
+          window.gapi.client.init({})
+            .then(() => window.gapi.client.load('https://www.googleapis.com/discovery/v1/apis/drive/v3/rest'))
+            .then(() => { gapiLoaded = true; checkBothLoaded(); })
+            .catch(reject);
+        },
+        onerror: reject
+      });
+    };
+    gapiScript.onerror = reject;
+    document.head.appendChild(gapiScript);
+  });
+}
+
+async function connectDrive() {
+  setSyncState('syncing');
+  showToast('載入 Google 服務中…');
+  try {
+    await loadGoogleAPI();
+  } catch(e) {
+    showToast('載入 Google 服務失敗，請重試');
+    setSyncState('error');
     return;
   }
-  initTokenClient();
-  tokenClient.requestAccessToken();
-}
 
-function loadGoogleAPI() {
-  return new Promise(resolve => {
-    if (window.google) { resolve(); return; }
-    const s = document.createElement('script');
-    s.src = 'https://accounts.google.com/gsi/client';
-    s.onload = resolve;
-    document.head.appendChild(s);
-    const g = document.createElement('script');
-    g.src = 'https://apis.google.com/js/api.js';
-    g.onload = () => { window.gapi.load('client', () => { resolve(); }); };
-    document.head.appendChild(g);
-  });
-}
-
-function initTokenClient() {
-  if (tokenClient) return;
-  tokenClient = google.accounts.oauth2.initTokenClient({
-    client_id: '859465746094-ed5q19s7hh6kh2hkqi2cjg4es2c0j8kv.apps.googleusercontent.com',
-    scope: SCOPES,
-    callback: async (resp) => {
-      if (resp.error) { showToast('連線失敗：' + resp.error); setSyncState('error'); return; }
-      driveConnected = true;
-      document.getElementById('driveBtn').title = '已連結 Google Drive';
-      showToast('Google Drive 已連結');
-      setSyncState('syncing');
-      await initDriveClient();
-      await syncWithDrive();
-    }
-  });
-}
-
-async function initDriveClient() {
-  await gapi.client.init({ discoveryDocs: ['https://www.googleapis.com/discovery/v1/apis/drive/v3/rest'] });
+  if (!tokenClient) {
+    tokenClient = google.accounts.oauth2.initTokenClient({
+      client_id: '__GOOGLE_CLIENT_ID__',
+      scope: SCOPES,
+      callback: async (resp) => {
+        if (resp.error) {
+          showToast('連線失敗：' + resp.error);
+          setSyncState('error');
+          return;
+        }
+        // Access token 已注入 gapi.client，直接同步
+        driveConnected = true;
+        document.getElementById('driveBtn').title = '已連結 Google Drive';
+        await syncWithDrive();
+      }
+    });
+  }
+  tokenClient.requestAccessToken({ prompt: driveConnected ? '' : 'consent' });
 }
 
 async function syncWithDrive() {
@@ -600,7 +624,7 @@ async function syncWithDrive() {
     const remoteData = await fetchFromDrive();
     if (remoteData) {
       const remote = JSON.parse(remoteData);
-      notes = mergNotes(notes, remote);
+      notes = mergeNotes(notes, remote);
       saveLocal();
       renderList();
     }
@@ -610,58 +634,86 @@ async function syncWithDrive() {
   } catch(e) {
     setSyncState('error');
     showToast('同步失敗，請稍後再試');
-    console.error(e);
+    console.error('Drive sync error:', e);
   }
 }
 
 async function fetchFromDrive() {
-  const res = await gapi.client.drive.files.list({
-    spaces: 'appDataFolder',
-    q: `name='${DRIVE_FILE_NAME}'`,
-    fields: 'files(id,name)'
+  // 優先用快取的 file ID，省掉搜尋這步
+  if (!driveFileId) {
+    const res = await window.gapi.client.drive.files.list({
+      spaces: 'appDataFolder',
+      q: `name='${DRIVE_FILE_NAME}' and trashed=false`,
+      fields: 'files(id,name)',
+      pageSize: 1
+    });
+    const files = res.result.files;
+    if (!files || files.length === 0) return null;
+    driveFileId = files[0].id;
+    localStorage.setItem('notebook_drive_file_id', driveFileId);
+  }
+
+  const content = await window.gapi.client.drive.files.get({
+    fileId: driveFileId,
+    alt: 'media'
   });
-  const files = res.result.files;
-  if (!files || files.length === 0) return null;
-  driveFileId = files[0].id;
-  const content = await gapi.client.drive.files.get({ fileId: driveFileId, alt: 'media' });
-  return typeof content.body === 'string' ? content.body : JSON.stringify(content.result);
+  // gapi 會把 JSON 自動解析成物件，要轉回字串
+  return typeof content.body === 'string'
+    ? content.body
+    : JSON.stringify(content.result);
 }
 
 async function uploadToDrive() {
   const data = JSON.stringify(notes);
-  const boundary = '-------314159265358979323846';
-  const meta = driveFileId
-    ? null
-    : JSON.stringify({ name: DRIVE_FILE_NAME, parents: ['appDataFolder'] });
+  const token = window.gapi.client.getToken();
+  if (!token) throw new Error('No access token');
+
   if (driveFileId) {
-    await gapi.client.request({
-      path: `/upload/drive/v3/files/${driveFileId}`,
+    // 已有檔案：直接 PATCH 覆蓋內容
+    await fetch(`https://www.googleapis.com/upload/drive/v3/files/${driveFileId}?uploadType=media`, {
       method: 'PATCH',
-      params: { uploadType: 'media' },
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Authorization': 'Bearer ' + token.access_token,
+        'Content-Type': 'application/json'
+      },
       body: data
     });
   } else {
-    const body =
-      `--${boundary}\r\nContent-Type: application/json\r\n\r\n${meta}\r\n` +
-      `--${boundary}\r\nContent-Type: application/json\r\n\r\n${data}\r\n--${boundary}--`;
-    const res = await gapi.client.request({
-      path: '/upload/drive/v3/files',
+    // 第一次：用 multipart 同時建立檔案 + 上傳內容
+    const boundary = 'notebook_boundary_' + Date.now();
+    const meta = JSON.stringify({ name: DRIVE_FILE_NAME, parents: ['appDataFolder'] });
+    const body = [
+      `--${boundary}`,
+      'Content-Type: application/json; charset=UTF-8',
+      '',
+      meta,
+      `--${boundary}`,
+      'Content-Type: application/json',
+      '',
+      data,
+      `--${boundary}--`
+    ].join('\r\n');
+
+    const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
       method: 'POST',
-      params: { uploadType: 'multipart' },
-      headers: { 'Content-Type': `multipart/related; boundary="${boundary}"` },
+      headers: {
+        'Authorization': 'Bearer ' + token.access_token,
+        'Content-Type': `multipart/related; boundary=${boundary}`
+      },
       body
     });
-    driveFileId = res.result.id;
+    const json = await res.json();
+    driveFileId = json.id;
+    localStorage.setItem('notebook_drive_file_id', driveFileId);
   }
 }
 
-function mergNotes(local, remote) {
+function mergeNotes(local, remote) {
   const map = {};
   [...remote, ...local].forEach(n => {
     if (!map[n.id] || n.updatedAt > map[n.id].updatedAt) map[n.id] = n;
   });
-  return Object.values(map).sort((a,b) => b.updatedAt - a.updatedAt);
+  return Object.values(map).sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
 // ── 鍵盤快捷鍵 ──
