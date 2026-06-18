@@ -624,7 +624,13 @@ let driveFileId = localStorage.getItem('notebook_drive_file_id') || null;
 // ── 單一同步按鈕入口 ──
 async function handleSyncBtn() {
   if (!driveConnected) {
-    await connectDrive();  // 授權完會自動執行 pullAndMerge
+    setSyncState('syncing');
+    const ok = await silentAuth();
+    if (ok) {
+      await pullAndMerge();
+    } else {
+      await connectDrive();
+    }
   } else {
     await pullAndMerge();
   }
@@ -643,26 +649,91 @@ function loadGSI() {
 }
 
 // ── 授權 ──
-async function connectDrive() {
-  setSyncState('syncing');
-  try { await loadGSI(); } catch(e) {
-    showToast('載入失敗，請重試'); setSyncState('error'); return;
-  }
-  if (!tokenClient) {
-    tokenClient = google.accounts.oauth2.initTokenClient({
-      client_id: '859465746094-ed5q19s7hh6kh2hkqi2cjg4es2c0j8kv.apps.googleusercontent.com',
-      scope: SCOPES,
-      callback: async (resp) => {
-        if (resp.error) { showToast('授權失敗：' + resp.error); setSyncState('error'); return; }
+
+// 初始化 tokenClient（只做一次）
+async function initTokenClient() {
+  await loadGSI();
+  if (tokenClient) return;
+  tokenClient = google.accounts.oauth2.initTokenClient({
+    client_id: '859465746094-ed5q19s7hh6kh2hkqi2cjg4es2c0j8kv.apps.googleusercontent.com',
+    scope: SCOPES,
+    callback: async (resp) => {
+      if (resp.error) {
+        console.warn('Auth callback error:', resp.error);
+        setSyncState('error');
+        return;
+      }
+      accessToken = resp.access_token;
+      driveConnected = true;
+      startPolling();
+    }
+  });
+}
+
+// 靜默授權：App 啟動時自動嘗試，失敗不跳視窗
+async function silentAuth() {
+  try {
+    await loadGSI();
+    await initTokenClient();
+    await new Promise((resolve, reject) => {
+      const original = tokenClient.callback;
+      tokenClient.callback = async (resp) => {
+        tokenClient.callback = original;
+        if (resp.error) { reject(new Error(resp.error)); return; }
         accessToken = resp.access_token;
         driveConnected = true;
-        showToast('已連結 Google Drive');
-        await pullAndMerge();   // 授權完立刻拉取
-        startPolling();          // 開始定時檢查
-      }
+        startPolling();
+        resolve();
+      };
+      tokenClient.requestAccessToken({ prompt: '' });
     });
+    return true;  // 靜默成功
+  } catch(e) {
+    console.log('Silent auth failed:', e.message);
+    return false; // 靜默失敗，需要使用者介入
   }
-  tokenClient.requestAccessToken({ prompt: 'consent' });
+}
+
+// 強制跳視窗授權
+function connectDrive() {
+  return new Promise(async (resolve) => {
+    try { await initTokenClient(); } catch(e) {
+      showToast('載入失敗，請重試'); setSyncState('error'); resolve(false); return;
+    }
+    const original = tokenClient.callback;
+    tokenClient.callback = async (resp) => {
+      tokenClient.callback = original;
+      if (resp.error) { showToast('授權失敗：' + resp.error); setSyncState('error'); resolve(false); return; }
+      accessToken = resp.access_token;
+      driveConnected = true;
+      showToast('已連結 Google Drive');
+      await pullAndMerge();
+      startPolling();
+      resolve(true);
+    };
+    tokenClient.requestAccessToken({ prompt: 'consent' });
+  });
+}
+
+// 401 時自動重新授權後重試
+async function withAutoReauth(fn) {
+  try {
+    return await fn();
+  } catch(e) {
+    if (e.message && e.message.includes('401')) {
+      console.log('Token expired, trying silent reauth...');
+      const ok = await silentAuth();
+      if (ok) {
+        return await fn(); // 重試
+      } else {
+        // 靜默失敗，跳視窗
+        showToast('登入已過期，請重新授權');
+        await connectDrive();
+        return await fn();
+      }
+    }
+    throw e;
+  }
 }
 
 // ── REST API 工具 ──
@@ -670,6 +741,7 @@ async function driveGetJSON(path, params = {}) {
   const url = new URL('https://www.googleapis.com/drive/v3/' + path);
   Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
   const res = await fetch(url, { headers: { 'Authorization': 'Bearer ' + accessToken } });
+  if (res.status === 401) throw new Error('401 Token expired');
   if (!res.ok) throw new Error('Drive GET failed: ' + res.status + ' ' + await res.text());
   return res.json();
 }
@@ -679,6 +751,7 @@ async function driveGetMedia(fileId) {
     `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`,
     { headers: { 'Authorization': 'Bearer ' + accessToken } }
   );
+  if (res.status === 401) throw new Error('401 Token expired');
   if (!res.ok) throw new Error('Drive media GET failed: ' + res.status);
   return res.text();
 }
@@ -701,6 +774,10 @@ async function ensureFileId() {
 // ── 從 Drive 拉取並逐則合併 ──
 async function pullAndMerge() {
   if (!driveConnected) return;
+  return withAutoReauth(_pullAndMerge);
+}
+
+async function _pullAndMerge() {
   setSyncState('syncing');
   try {
     await ensureFileId();
@@ -740,6 +817,10 @@ async function pullAndMerge() {
 // ── 推送到 Drive（整包覆蓋）──
 async function pushToDrive() {
   if (!driveConnected) return;
+  return withAutoReauth(_pushToDrive);
+}
+
+async function _pushToDrive() {
   setSyncState('syncing');
   try {
     await ensureFileId();
@@ -934,6 +1015,19 @@ document.addEventListener('keydown', e => {
 // ── 初始化 ──
 loadLocal();
 renderList();
+
+// App 啟動時自動嘗試靜默授權
+(async () => {
+  setSyncState('syncing');
+  const ok = await silentAuth();
+  if (ok) {
+    await pullAndMerge();
+    showToast('已自動連線 Drive');
+  } else {
+    setSyncState('ok');
+    // 靜默失敗不跳錯誤，等使用者手動按同步
+  }
+})();
 </script>
 </body>
 </html>
