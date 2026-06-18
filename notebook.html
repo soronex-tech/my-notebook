@@ -537,7 +537,7 @@ function closeLightbox() {
 
 // ── Google Drive 同步 ──
 const DRIVE_FILE_NAME = 'notebook_data.json';
-const SCOPES = 'https://www.googleapis.com/auth/drive.appdata';
+const SCOPES = 'https://www.googleapis.com/auth/drive.file';
 let tokenClient = null;
 let accessToken = null;
 let driveFileId = localStorage.getItem('notebook_drive_file_id') || null;
@@ -610,7 +610,7 @@ async function syncWithDrive() {
     // 1. 找檔案 ID（優先用快取）
     if (!driveFileId) {
       const result = await driveGet('files', {
-        spaces: 'appDataFolder',
+        spaces: 'drive',
         q: `name='${DRIVE_FILE_NAME}' and trashed=false`,
         fields: 'files(id)',
         pageSize: '1'
@@ -660,7 +660,7 @@ async function syncWithDrive() {
     } else {
       // 第一次：multipart 建立新檔案
       const boundary = 'nb_' + Date.now();
-      const meta = JSON.stringify({ name: DRIVE_FILE_NAME, parents: ['appDataFolder'] });
+      const meta = JSON.stringify({ name: DRIVE_FILE_NAME, parents: [] });
       const body = [
         `--${boundary}`,
         'Content-Type: application/json; charset=UTF-8',
