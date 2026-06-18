@@ -547,7 +547,7 @@ function scheduleDriveSync() {
   if (!driveConnected) return;
   if (syncScheduled) return;
   syncScheduled = true;
-  setTimeout(() => { syncScheduled = false; driveSync(); }, 2000);
+  setTimeout(() => { syncScheduled = false; syncWithDrive(); }, 2000);
 }
 
 // 只載入 GSI，完全不用 gapi.js
@@ -570,7 +570,7 @@ async function connectDrive() {
   }
   if (!tokenClient) {
     tokenClient = google.accounts.oauth2.initTokenClient({
-      client_id: '859465746094-ed5q19s7hh6kh2hkqi2cjg4es2c0j8kv.apps.googleusercontent.com',
+      client_id: '660877792951-i8o5b4l1sfnqjqg0ngjf3fvbsk2q3hpj.apps.googleusercontent.com',
       scope: SCOPES,
       callback: async (resp) => {
         if (resp.error) { showToast('授權失敗：' + resp.error); setSyncState('error'); return; }
