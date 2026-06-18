@@ -624,13 +624,7 @@ let driveFileId = localStorage.getItem('notebook_drive_file_id') || null;
 // ── 單一同步按鈕入口 ──
 async function handleSyncBtn() {
   if (!driveConnected) {
-    setSyncState('syncing');
-    const ok = await silentAuth();
-    if (ok) {
-      await pullAndMerge();
-    } else {
-      await connectDrive();
-    }
+    await connectDrive();
   } else {
     await pullAndMerge();
   }
@@ -670,30 +664,6 @@ async function initTokenClient() {
   });
 }
 
-// 靜默授權：App 啟動時自動嘗試，失敗不跳視窗
-async function silentAuth() {
-  try {
-    await loadGSI();
-    await initTokenClient();
-    await new Promise((resolve, reject) => {
-      const original = tokenClient.callback;
-      tokenClient.callback = async (resp) => {
-        tokenClient.callback = original;
-        if (resp.error) { reject(new Error(resp.error)); return; }
-        accessToken = resp.access_token;
-        driveConnected = true;
-        startPolling();
-        resolve();
-      };
-      tokenClient.requestAccessToken({ prompt: '' });
-    });
-    return true;  // 靜默成功
-  } catch(e) {
-    console.log('Silent auth failed:', e.message);
-    return false; // 靜默失敗，需要使用者介入
-  }
-}
-
 // 強制跳視窗授權
 function connectDrive() {
   return new Promise(async (resolve) => {
@@ -721,16 +691,9 @@ async function withAutoReauth(fn) {
     return await fn();
   } catch(e) {
     if (e.message && e.message.includes('401')) {
-      console.log('Token expired, trying silent reauth...');
-      const ok = await silentAuth();
-      if (ok) {
-        return await fn(); // 重試
-      } else {
-        // 靜默失敗，跳視窗
-        showToast('登入已過期，請重新授權');
-        await connectDrive();
-        return await fn();
-      }
+      showToast('登入已過期，請重新授權');
+      await connectDrive();
+      return await fn();
     }
     throw e;
   }
@@ -824,7 +787,8 @@ async function _pushToDrive() {
   setSyncState('syncing');
   try {
     await ensureFileId();
-    const data = JSON.stringify(notes);
+    // 推上去前過濾掉已刪除的筆記，Drive 上只保留真正存在的
+    const data = JSON.stringify(notes.filter(n => !n.deleted));
 
     if (driveFileId) {
       const res = await fetch(
@@ -1016,18 +980,7 @@ document.addEventListener('keydown', e => {
 loadLocal();
 renderList();
 
-// App 啟動時自動嘗試靜默授權
-(async () => {
-  setSyncState('syncing');
-  const ok = await silentAuth();
-  if (ok) {
-    await pullAndMerge();
-    showToast('已自動連線 Drive');
-  } else {
-    setSyncState('ok');
-    // 靜默失敗不跳錯誤，等使用者手動按同步
-  }
-})();
+
 </script>
 </body>
 </html>
