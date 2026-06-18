@@ -582,7 +582,7 @@ async function connectDrive() {
       }
     });
   }
-  tokenClient.requestAccessToken({ prompt: '' });
+  tokenClient.requestAccessToken({ prompt: 'consent' });
 }
 
 // 所有 Drive 操作全部用 fetch 直打 REST API
@@ -606,18 +606,24 @@ async function driveGetMedia(fileId) {
 async function syncWithDrive() {
   if (!driveConnected) { connectDrive(); return; }
   setSyncState('syncing');
+  console.log('[Sync] 開始同步, accessToken:', accessToken ? '有' : '沒有', 'fileId:', driveFileId);
   try {
     // 1. 找檔案 ID（優先用快取）
     if (!driveFileId) {
+      console.log('[Sync] 搜尋 Drive 檔案...');
       const result = await driveGet('files', {
         spaces: 'drive',
         q: `name='${DRIVE_FILE_NAME}' and trashed=false`,
         fields: 'files(id)',
         pageSize: '1'
       });
+      console.log('[Sync] 搜尋結果:', result);
       if (result.files && result.files.length > 0) {
         driveFileId = result.files[0].id;
         localStorage.setItem('notebook_drive_file_id', driveFileId);
+        console.log('[Sync] 找到檔案 ID:', driveFileId);
+      } else {
+        console.log('[Sync] Drive 上沒有舊檔案，將建立新檔案');
       }
     }
 
