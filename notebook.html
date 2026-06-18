@@ -636,24 +636,63 @@ async function syncWithDrive() {
     const data = JSON.stringify(notes);
     if (driveFileId) {
       // 已有檔案：PATCH 覆蓋
-      await fetch(`https://www.googleapis.com/upload/drive/v3/files/${driveFileId}?uploadType=media`, {
-        method: 'PATCH',
-        headers: { 'Authorization': 'Bearer ' + accessToken, 'Content-Type': 'application/json' },
-        body: data
-      });
+      const patchRes = await fetch(
+        `https://www.googleapis.com/upload/drive/v3/files/${driveFileId}?uploadType=media`,
+        {
+          method: 'PATCH',
+          headers: { 'Authorization': 'Bearer ' + accessToken, 'Content-Type': 'application/json' },
+          body: data
+        }
+      );
+      if (!patchRes.ok) {
+        // 檔案 ID 失效（例如被刪掉），清掉快取重新建立
+        if (patchRes.status === 404) {
+          driveFileId = null;
+          localStorage.removeItem('notebook_drive_file_id');
+          console.warn('Drive file not found, will recreate on next sync');
+          showToast('Drive 檔案不存在，已重設，請再同步一次');
+          setSyncState('error');
+          return;
+        }
+        const errText = await patchRes.text();
+        throw new Error(`PATCH failed ${patchRes.status}: ${errText}`);
+      }
     } else {
       // 第一次：multipart 建立新檔案
       const boundary = 'nb_' + Date.now();
       const meta = JSON.stringify({ name: DRIVE_FILE_NAME, parents: ['appDataFolder'] });
-      const body = `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${meta}\r\n--${boundary}\r\nContent-Type: application/json\r\n\r\n${data}\r\n--${boundary}--`;
-      const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
-        method: 'POST',
-        headers: { 'Authorization': 'Bearer ' + accessToken, 'Content-Type': `multipart/related; boundary=${boundary}` },
-        body
-      });
-      const json = await res.json();
+      const body = [
+        `--${boundary}`,
+        'Content-Type: application/json; charset=UTF-8',
+        '',
+        meta,
+        `--${boundary}`,
+        'Content-Type: application/json',
+        '',
+        data,
+        `--${boundary}--`
+      ].join('\r\n');
+
+      const postRes = await fetch(
+        'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart',
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': 'Bearer ' + accessToken,
+            'Content-Type': `multipart/related; boundary=${boundary}`
+          },
+          body
+        }
+      );
+      if (!postRes.ok) {
+        const errText = await postRes.text();
+        throw new Error(`POST failed ${postRes.status}: ${errText}`);
+      }
+      const json = await postRes.json();
+      if (!json.id) throw new Error('No file ID in response: ' + JSON.stringify(json));
       driveFileId = json.id;
       localStorage.setItem('notebook_drive_file_id', driveFileId);
+      console.log('Drive file created, ID:', driveFileId);
     }
 
     setSyncState('ok');
