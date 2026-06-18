@@ -232,6 +232,31 @@
     white-space: nowrap;
   }
   .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  /* ── 儲存遮罩 ── */
+  .save-overlay {
+    position: absolute; inset: 0;
+    background: rgba(0,0,0,.45);
+    backdrop-filter: blur(2px);
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    z-index: 200; opacity: 0; pointer-events: none;
+    transition: opacity .2s;
+    border-radius: 0;
+  }
+  .save-overlay.show { opacity: 1; pointer-events: all; }
+  .save-spinner {
+    width: 36px; height: 36px;
+    border: 3px solid rgba(255,255,255,.25);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: spin .7s linear infinite;
+    margin-bottom: 12px;
+  }
+  .save-label {
+    color: #fff; font-size: 14px; font-weight: 500; letter-spacing: .02em;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
 </style>
 </head>
 <body>
@@ -286,6 +311,11 @@
     </button>
     <input type="file" id="file-input" accept="image/*,video/*" multiple onchange="handleFileInput(this)">
     <span class="char-count" id="charCount">0 字</span>
+  </div>
+  <!-- 儲存遮罩 -->
+  <div class="save-overlay" id="saveOverlay">
+    <div class="save-spinner"></div>
+    <div class="save-label" id="saveLabel">儲存中…</div>
   </div>
 </div>
 
@@ -348,6 +378,15 @@ function setSyncState(state) {
   const dot = document.getElementById('syncDot');
   dot.className = 'sync-dot' + (state === 'syncing' ? ' syncing' : state === 'error' ? ' error' : '');
   dot.title = state === 'syncing' ? '同步中…' : state === 'error' ? '同步失敗' : '已同步';
+}
+
+function showSaving(label = '儲存中…') {
+  document.getElementById('saveLabel').textContent = label;
+  document.getElementById('saveOverlay').classList.add('show');
+}
+
+function hideSaving() {
+  document.getElementById('saveOverlay').classList.remove('show');
 }
 
 // ── 搜尋（substring） ──
@@ -773,6 +812,7 @@ async function saveNote() {
   }
 
   // 有連線：先去 Drive 比較 baseline，再決定怎麼處理
+  showSaving('確認雲端版本…');
   setSyncState('syncing');
   try {
     await ensureFileId();
@@ -788,6 +828,7 @@ async function saveNote() {
     }
 
     if (conflict) {
+      hideSaving();  // 先收起遮罩，讓 confirm 跳出來
       // 三選一：用原生 confirm 兩次模擬三選項
       const overwrite = confirm(
         '⚠️ 此筆記在你編輯期間已被更新。\n\n' +
@@ -797,7 +838,9 @@ async function saveNote() {
       if (overwrite) {
         // 選擇覆蓋
         commitSaveLocal(title, body, now);
+        showSaving('上傳中…');
         await pushToDrive();
+        hideSaving();
         showToast('已覆蓋並同步');
         exitEditor();
       } else {
@@ -818,11 +861,14 @@ async function saveNote() {
           };
           notes.unshift(copy);
           saveLocal();
+          showSaving('上傳副本…');
           await pushToDrive();
+          hideSaving();
           showToast('已另存為副本');
           exitEditor();
         } else {
           // 取消：回到編輯畫面，什麼都不做
+          hideSaving();
           setSyncState('ok');
           return;
         }
@@ -830,11 +876,14 @@ async function saveNote() {
     } else {
       // 無衝突：直接存並推
       commitSaveLocal(title, body, now);
+      showSaving('上傳中…');
       await pushToDrive();
+      hideSaving();
       showToast('已儲存並同步');
       exitEditor();
     }
   } catch(e) {
+    hideSaving();
     setSyncState('error');
     showToast('同步失敗，資料已存在本地');
     console.error('saveNote error:', e);
