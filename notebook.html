@@ -754,19 +754,28 @@ async function _pullAndMerge() {
 
     // 逐則比較：只更新比 local 新的那則
     let changed = false;
+    const remoteIds = new Set(remote.map(n => n.id));
+
+    // 1. Drive 有的筆記：新增或更新到本地
     remote.forEach(remoteNote => {
-      const local = notes.find(n => n.id === remoteNote.id);
-      if (!local) {
+      const localIdx = notes.findIndex(n => n.id === remoteNote.id);
+      if (localIdx === -1) {
         // Drive 有但本地沒有（其他裝置新增的）
-        if (!remoteNote.deleted) { notes.push(remoteNote); changed = true; }
-      } else if (remoteNote.updatedAt > local.updatedAt) {
+        notes.push(remoteNote);
+        changed = true;
+      } else if (remoteNote.updatedAt > notes[localIdx].updatedAt) {
         // Drive 比較新，用 Drive 的覆蓋
-        Object.assign(local, remoteNote);
-        baselineTimes[local.id] = local.updatedAt;
+        Object.assign(notes[localIdx], remoteNote);
+        baselineTimes[notes[localIdx].id] = notes[localIdx].updatedAt;
         changed = true;
       }
       // 本地比較新或一樣新：不動
     });
+
+    // 2. 本地有但 Drive 沒有的筆記：代表其他裝置刪掉了，本地也移除
+    const before = notes.length;
+    notes = notes.filter(n => remoteIds.has(n.id));
+    if (notes.length !== before) changed = true;
 
     if (changed) { saveLocal(); renderList(); }
     setSyncState('ok');
