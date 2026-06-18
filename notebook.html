@@ -306,6 +306,8 @@ let searchQuery = '';
 let saveTimer = null;
 let driveConnected = false;
 let baselineTimes = {};   // 每則筆記開啟時的基準 updatedAt
+let originalNote = null;  // 點開筆記時的原始內容，用於放棄修改
+let noteDirty = false;    // 是否有未儲存的修改
 let pollTimer = null;     // 定時檢查 timer
 
 
@@ -406,6 +408,7 @@ function renderList() {
 // ── 編輯器 ──
 function openEditor(id) {
   currentNoteId = id;
+  noteDirty = false;
   const panel = document.getElementById('editorPanel');
   const titleInput = document.getElementById('titleInput');
   const bodyInput = document.getElementById('bodyInput');
@@ -418,11 +421,15 @@ function openEditor(id) {
     bodyInput.value = note.body;
     renderMediaStrip(note.media || []);
     deleteBtn.style.display = '';
+    // 點開筆記時，記錄 baseline 時間和原始內容
+    baselineTimes[id] = note.updatedAt;
+    originalNote = { title: note.title, body: note.body, media: [...(note.media || [])] };
   } else {
     titleInput.value = '';
     bodyInput.value = '';
     renderMediaStrip([]);
     deleteBtn.style.display = 'none';
+    originalNote = null;
   }
   updateCharCount();
   panel.classList.add('open');
@@ -430,29 +437,52 @@ function openEditor(id) {
 }
 
 function closeEditor() {
-  autoSave();
+  if (noteDirty) {
+    const leave = confirm('你有未儲存的修改，確定要離開嗎？\n\n確定 → 放棄修改，離開\n取消 → 回到編輯畫面');
+    if (!leave) return;
+    // 放棄修改：還原原始內容
+    if (currentNoteId && originalNote) {
+      const note = notes.find(n => n.id === currentNoteId);
+      if (note) {
+        note.title = originalNote.title;
+        note.body = originalNote.body;
+        note.media = originalNote.media;
+        saveLocal();
+      }
+    } else if (!currentNoteId) {
+      // 新增筆記中途放棄，從 notes 移除
+      const titleInput = document.getElementById('titleInput');
+      const bodyInput = document.getElementById('bodyInput');
+      if (!titleInput.value.trim() && !bodyInput.value.trim()) {
+        // 空的直接關
+      }
+    }
+  }
   document.getElementById('editorPanel').classList.remove('open');
   currentNoteId = null;
+  originalNote = null;
+  noteDirty = false;
   renderList();
 }
 
 function autoSave() {
   const title = document.getElementById('titleInput').value.trim();
   const body = document.getElementById('bodyInput').value;
-  if (!title && !body) return;
 
+  // 標記有修改（跟原始內容比較）
+  if (originalNote !== null) {
+    noteDirty = (title !== originalNote.title || body !== originalNote.body);
+  } else {
+    noteDirty = !!(title || body);
+  }
+
+  if (!title && !body) return;
   if (currentNoteId) {
     const note = notes.find(n => n.id === currentNoteId);
     if (note) { note.title = title; note.body = body; }
-    // 注意：不更新 updatedAt，要等按儲存才更新
-  } else {
-    const newNote = { id: genId(), title, body, media: [], createdAt: Date.now(), updatedAt: Date.now() };
-    notes.unshift(newNote);
-    currentNoteId = newNote.id;
-    baselineTimes[newNote.id] = newNote.updatedAt;
-    document.getElementById('deleteBtn').style.display = '';
+    // 不更新 updatedAt，等按儲存才更新
   }
-  saveLocal();
+  // 新筆記暫時不建立，等按儲存再建立
 }
 
 function deleteNote() {
@@ -732,42 +762,56 @@ async function saveNote() {
   const body = document.getElementById('bodyInput').value;
   if (!title && !body) { showToast('筆記是空的'); return; }
 
-  // 先存本地（更新 updatedAt）
   const now = Date.now();
-  if (currentNoteId) {
-    const note = notes.find(n => n.id === currentNoteId);
-    if (note) { note.title = title; note.body = body; note.updatedAt = now; }
-  } else {
-    const newNote = { id: genId(), title, body, media: [], createdAt: now, updatedAt: now };
-    notes.unshift(newNote);
-    currentNoteId = newNote.id;
-    baselineTimes[newNote.id] = now;
-    document.getElementById('deleteBtn').style.display = '';
+
+  // 如果沒有連線 Drive，直接存本地就好
+  if (!driveConnected) {
+    commitSaveLocal(title, body, now);
+    showToast('已儲存（未連線 Drive）');
+    exitEditor();
+    return;
   }
-  saveLocal();
 
-  if (!driveConnected) { showToast('已儲存（未連線 Drive）'); renderList(); return; }
-
-  // 從 Drive 撈一次，比較這則筆記的 updatedAt
+  // 有連線：先去 Drive 比較 baseline，再決定怎麼處理
   setSyncState('syncing');
   try {
     await ensureFileId();
-    if (driveFileId) {
+
+    let conflict = false;
+    if (driveFileId && currentNoteId) {
       const raw = await driveGetMedia(driveFileId);
       const remote = JSON.parse(raw);
       const remoteNote = remote.find(n => n.id === currentNoteId);
       const baseline = baselineTimes[currentNoteId] || 0;
+      // 雲端時間 > 點開筆記時記錄的 baseline → 有衝突
+      if (remoteNote && remoteNote.updatedAt > baseline) conflict = true;
+    }
 
-      if (remoteNote && remoteNote.updatedAt > baseline) {
-        // 衝突：雲端比我開啟時更新了
-        const choice = confirm('⚠️ 此筆記在你編輯期間已被更新。\n\n按「確定」→ 覆蓋雲端版本\n按「取消」→ 另存為副本');
-        if (!choice) {
-          // 另存新檔
+    if (conflict) {
+      // 三選一：用原生 confirm 兩次模擬三選項
+      const overwrite = confirm(
+        '⚠️ 此筆記在你編輯期間已被更新。\n\n' +
+        '按「確定」→ 覆蓋雲端版本\n' +
+        '按「取消」→ 進入下一步選擇'
+      );
+      if (overwrite) {
+        // 選擇覆蓋
+        commitSaveLocal(title, body, now);
+        await pushToDrive();
+        showToast('已覆蓋並同步');
+        exitEditor();
+      } else {
+        const makeCopy = confirm(
+          '要另存為副本嗎？\n\n' +
+          '按「確定」→ 另存為「' + title + ' 的副本」\n' +
+          '按「取消」→ 回到編輯畫面，不做任何變更'
+        );
+        if (makeCopy) {
           const copy = {
             id: genId(),
             title: title + ' 的副本',
             body,
-            media: notes.find(n => n.id === currentNoteId)?.media || [],
+            media: [...(notes.find(n => n.id === currentNoteId)?.media || [])],
             createdAt: now,
             updatedAt: now,
             deleted: false
@@ -776,21 +820,49 @@ async function saveNote() {
           saveLocal();
           await pushToDrive();
           showToast('已另存為副本');
-          renderList();
+          exitEditor();
+        } else {
+          // 取消：回到編輯畫面，什麼都不做
+          setSyncState('ok');
           return;
         }
       }
+    } else {
+      // 無衝突：直接存並推
+      commitSaveLocal(title, body, now);
+      await pushToDrive();
+      showToast('已儲存並同步');
+      exitEditor();
     }
-    // 更新 baseline，推上去
-    baselineTimes[currentNoteId] = now;
-    await pushToDrive();
-    showToast('已儲存並同步');
-    renderList();
   } catch(e) {
     setSyncState('error');
     showToast('同步失敗，資料已存在本地');
     console.error('saveNote error:', e);
   }
+}
+
+// 把修改寫進本地 notes
+function commitSaveLocal(title, body, now) {
+  if (currentNoteId) {
+    const note = notes.find(n => n.id === currentNoteId);
+    if (note) { note.title = title; note.body = body; note.updatedAt = now; }
+    baselineTimes[currentNoteId] = now;
+  } else {
+    const newNote = { id: genId(), title, body, media: [], createdAt: now, updatedAt: now };
+    notes.unshift(newNote);
+    currentNoteId = newNote.id;
+    baselineTimes[newNote.id] = now;
+  }
+  saveLocal();
+}
+
+// 儲存完成後退出編輯畫面
+function exitEditor() {
+  document.getElementById('editorPanel').classList.remove('open');
+  currentNoteId = null;
+  originalNote = null;
+  noteDirty = false;
+  renderList();
 }
 
 // ── 定時檢查（30秒）+ 切回頁面時觸發 ──
