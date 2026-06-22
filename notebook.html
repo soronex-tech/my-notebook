@@ -1233,14 +1233,21 @@ let ctxOpen = false;
 
 function openCtxMenu(e) {
   if (!editor) return;
-  // 只在表格內才顯示
-  const isInTable = editor.isActive('table') ||
-    e.target.closest('table');
+  const isInTable = editor.isActive('table') || e.target.closest('table');
   if (!isInTable) return;
   e.preventDefault();
+
+  // 動態顯示/隱藏合併和拆分選項
+  const canMerge = editor.can().mergeCells();
+  const canSplit = editor.can().splitCell();
+  const mergeBtn = document.querySelector('[onclick="tableCmd(\'mergeCells\')"]');
+  const splitBtn = document.querySelector('[onclick="tableCmd(\'splitCell\')"]');
+  if (mergeBtn) mergeBtn.style.display = canMerge ? '' : 'none';
+  if (splitBtn) splitBtn.style.display = canSplit ? '' : 'none';
+
   const menu = document.getElementById('ctxMenu');
   const x = Math.min(e.clientX, window.innerWidth - 200);
-  const y = Math.min(e.clientY, window.innerHeight - 280);
+  const y = Math.min(e.clientY, window.innerHeight - 320);
   menu.style.left = x + 'px';
   menu.style.top = y + 'px';
   menu.classList.add('open');
@@ -1263,8 +1270,8 @@ function tableCmd(cmd) {
     addColumnAfter:  () => editor.chain().focus().addColumnAfter().run(),
     deleteColumn:    () => editor.chain().focus().deleteColumn().run(),
     deleteTable:     () => editor.chain().focus().deleteTable().run(),
-    mergeCells:      () => editor.chain().focus().mergeCells().run(),
-    splitCell:       () => editor.chain().focus().splitCell().run(),
+    mergeCells:      () => { if (editor.can().mergeCells()) editor.chain().focus().mergeCells().run(); else showToast('請先選取多個儲存格'); },
+    splitCell:       () => { if (editor.can().splitCell()) editor.chain().focus().splitCell().run(); else showToast('此儲存格無法拆分'); },
     toggleHeader:    () => editor.chain().focus().toggleHeaderRow().run(),
   };
   cmdMap[cmd]?.();
@@ -1314,10 +1321,10 @@ function initEditor() {
       StarterKit,
       TextStyle,
       Color,
-      Table.configure({ resizable: true }),
+      Table.configure({ resizable: true, allowTableNodeSelection: true }),
       TableRow,
-      TableHeader,
-      TableCell,
+      TableHeader.configure({ HTMLAttributes: { class: 'tiptap-th' } }),
+      TableCell.configure({ HTMLAttributes: { class: 'tiptap-td' } }),
     ],
     content: '',
     editorProps: {
