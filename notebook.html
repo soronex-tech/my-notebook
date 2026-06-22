@@ -150,12 +150,56 @@
     font-family: var(--font); border: none; background: transparent; outline: none;
   }
   .title-input::placeholder { color: var(--text-muted); font-weight: 400; }
-  .body-input {
-    flex: 1; padding: 8px 16px 16px; font-size: 15px; color: var(--text);
-    font-family: var(--font); border: none; background: transparent; outline: none;
-    resize: none; line-height: 1.7; overflow-y: auto;
+  /* ── TipTap 編輯區 ── */
+  .tiptap-wrap {
+    flex: 1; display: flex; flex-direction: column; overflow: hidden;
   }
-  .body-input::placeholder { color: var(--text-muted); }
+  .toolbar {
+    display: flex; flex-wrap: wrap; gap: 2px;
+    padding: 6px 12px; border-bottom: 1px solid var(--border);
+    flex-shrink: 0; background: var(--surface);
+  }
+  .tb-btn {
+    width: 30px; height: 30px; border-radius: 6px; border: none;
+    background: transparent; cursor: pointer; display: flex;
+    align-items: center; justify-content: center;
+    color: var(--text-muted); font-size: 13px; font-weight: 600;
+    font-family: var(--font); transition: background .12s, color .12s;
+    flex-shrink: 0;
+  }
+  .tb-btn:hover { background: var(--bg); color: var(--text); }
+  .tb-btn.active { background: var(--accent-light); color: var(--accent); }
+  .tb-btn svg { width: 15px; height: 15px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .tb-sep { width: 1px; height: 22px; background: var(--border); margin: 0 3px; flex-shrink: 0; align-self: center; }
+  .tb-color { width: 30px; height: 30px; padding: 0; border: none; border-radius: 6px; cursor: pointer; background: transparent; }
+  .tb-color input[type=color] { width: 24px; height: 24px; border: none; border-radius: 4px; cursor: pointer; padding: 0; background: none; }
+  .tb-select {
+    height: 28px; border: 1px solid var(--border); border-radius: 6px;
+    background: var(--bg); color: var(--text); font-size: 12px;
+    padding: 0 4px; cursor: pointer; outline: none;
+  }
+  #editor {
+    flex: 1; overflow-y: auto; padding: 12px 16px;
+    font-size: 15px; color: var(--text); line-height: 1.7;
+  }
+  .ProseMirror { outline: none; min-height: 100%; }
+  .ProseMirror p.is-editor-empty:first-child::before {
+    content: attr(data-placeholder);
+    color: var(--text-muted); pointer-events: none; float: left; height: 0;
+  }
+  .ProseMirror h1 { font-size: 22px; font-weight: 700; margin: 12px 0 6px; }
+  .ProseMirror h2 { font-size: 18px; font-weight: 600; margin: 10px 0 5px; }
+  .ProseMirror h3 { font-size: 16px; font-weight: 600; margin: 8px 0 4px; }
+  .ProseMirror ul, .ProseMirror ol { padding-left: 22px; margin: 6px 0; }
+  .ProseMirror li { margin: 2px 0; }
+  .ProseMirror blockquote { border-left: 3px solid var(--accent); padding-left: 12px; color: var(--text-muted); margin: 8px 0; }
+  .ProseMirror code { background: var(--bg); border-radius: 4px; padding: 1px 5px; font-size: 13px; }
+  .ProseMirror pre { background: var(--bg); border-radius: 8px; padding: 12px; overflow-x: auto; }
+  .ProseMirror table { border-collapse: collapse; width: 100%; margin: 8px 0; }
+  .ProseMirror td, .ProseMirror th { border: 1px solid var(--border); padding: 6px 10px; min-width: 60px; }
+  .ProseMirror th { background: var(--bg); font-weight: 600; }
+  .ProseMirror .selectedCell { background: var(--accent-light); }
+  .ProseMirror hr { border: none; border-top: 1px solid var(--border); margin: 12px 0; }
 
   /* ── 媒體預覽區 ── */
   .media-strip {
@@ -258,6 +302,16 @@
   }
   @keyframes spin { to { transform: rotate(360deg); } }
 </style>
+<!-- TipTap Bundle -->
+<script src="https://cdn.jsdelivr.net/npm/@tiptap/core@2.6.6/dist/index.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tiptap/pm@2.6.6/dist/index.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tiptap/starter-kit@2.6.6/dist/index.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tiptap/extension-text-style@2.6.6/dist/index.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tiptap/extension-color@2.6.6/dist/index.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tiptap/extension-table@2.6.6/dist/index.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tiptap/extension-table-row@2.6.6/dist/index.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tiptap/extension-table-header@2.6.6/dist/index.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tiptap/extension-table-cell@2.6.6/dist/index.umd.min.js"></script>
 </head>
 <body>
 
@@ -303,7 +357,49 @@
     </div>
   </div>
   <input class="title-input" id="titleInput" type="text" placeholder="標題">
-  <textarea class="body-input" id="bodyInput" placeholder="開始記錄…"></textarea>
+  <div class="tiptap-wrap">
+    <div class="toolbar" id="toolbar">
+      <!-- 標題 -->
+      <select class="tb-select" id="headingSelect" onchange="setHeading(this.value)">
+        <option value="0">內文</option>
+        <option value="1">標題 1</option>
+        <option value="2">標題 2</option>
+        <option value="3">標題 3</option>
+      </select>
+      <div class="tb-sep"></div>
+      <!-- 文字格式 -->
+      <button class="tb-btn" id="btn-bold" onclick="editor.chain().focus().toggleBold().run()" title="粗體"><svg viewBox="0 0 24 24"><path d="M6 4h8a4 4 0 0 1 4 4 4 4 0 0 1-4 4H6z"/><path d="M6 12h9a4 4 0 0 1 4 4 4 4 0 0 1-4 4H6z"/></svg></button>
+      <button class="tb-btn" id="btn-italic" onclick="editor.chain().focus().toggleItalic().run()" title="斜體"><svg viewBox="0 0 24 24"><line x1="19" y1="4" x2="10" y2="4"/><line x1="14" y1="20" x2="5" y2="20"/><line x1="15" y1="4" x2="9" y2="20"/></svg></button>
+      <button class="tb-btn" id="btn-underline" onclick="editor.chain().focus().toggleStrike().run()" title="刪除線"><svg viewBox="0 0 24 24"><line x1="18" y1="12" x2="6" y2="12"/><path d="M16 6C16 6 14 4 12 4C10 4 8 5.5 8 7.5C8 9.5 10 10.5 12 11"/><path d="M8 18C8 18 10 20 12 20C14 20 16 18.5 16 16.5"/></svg></button>
+      <div class="tb-sep"></div>
+      <!-- 文字顏色 -->
+      <div class="tb-color" title="文字顏色">
+        <input type="color" id="colorPicker" value="#e85d3a" onchange="editor.chain().focus().setColor(this.value).run()">
+      </div>
+      <div class="tb-sep"></div>
+      <!-- 清單 -->
+      <button class="tb-btn" id="btn-bulletList" onclick="editor.chain().focus().toggleBulletList().run()" title="項目符號">
+        <svg viewBox="0 0 24 24"><line x1="9" y1="6" x2="20" y2="6"/><line x1="9" y1="12" x2="20" y2="12"/><line x1="9" y1="18" x2="20" y2="18"/><circle cx="4" cy="6" r="1.5" fill="currentColor" stroke="none"/><circle cx="4" cy="12" r="1.5" fill="currentColor" stroke="none"/><circle cx="4" cy="18" r="1.5" fill="currentColor" stroke="none"/></svg>
+      </button>
+      <button class="tb-btn" id="btn-orderedList" onclick="editor.chain().focus().toggleOrderedList().run()" title="編號清單">
+        <svg viewBox="0 0 24 24"><line x1="10" y1="6" x2="21" y2="6"/><line x1="10" y1="12" x2="21" y2="12"/><line x1="10" y1="18" x2="21" y2="18"/><path d="M4 6h1v4"/><path d="M4 10h2"/><path d="M6 18H4c0-1 2-2 2-3s-1-1.5-2-1"/></svg>
+      </button>
+      <div class="tb-sep"></div>
+      <!-- 表格 -->
+      <button class="tb-btn" onclick="insertTable()" title="插入表格">
+        <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="12" y1="3" x2="12" y2="21"/></svg>
+      </button>
+      <div class="tb-sep"></div>
+      <!-- 引言 / 分隔線 -->
+      <button class="tb-btn" id="btn-blockquote" onclick="editor.chain().focus().toggleBlockquote().run()" title="引言">
+        <svg viewBox="0 0 24 24"><path d="M3 21c3 0 7-1 7-8V5c0-1.25-.756-2.017-2-2H4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V20c0 1 0 1 1 1z"/><path d="M15 21c3 0 7-1 7-8V5c0-1.25-.757-2.017-2-2h-4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2h.75c0 2.25.25 4-2.75 4v3c0 1 0 1 1 1z"/></svg>
+      </button>
+      <button class="tb-btn" onclick="editor.chain().focus().setHorizontalRule().run()" title="分隔線">
+        <svg viewBox="0 0 24 24"><line x1="3" y1="12" x2="21" y2="12"/></svg>
+      </button>
+    </div>
+    <div id="editor"></div>
+  </div>
   <div class="media-strip" id="mediaStrip"></div>
   <div class="media-toolbar">
     <button class="icon-btn" onclick="document.getElementById('file-input').click()" title="附加圖片或影片">
@@ -331,6 +427,7 @@
 <script>
 // ── 資料模型 ──
 let notes = [];
+let editor = null;  // TipTap 實例
 let currentNoteId = null;
 let searchQuery = '';
 let saveTimer = null;
@@ -403,12 +500,17 @@ function escHtml(s) {
   return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
+function stripHtml(html) {
+  if (!html) return '';
+  return html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
 function filteredNotes() {
   const active = notes.filter(n => !n.deleted);
   if (!searchQuery) return active.sort((a,b) => b.updatedAt - a.updatedAt);
   const q = searchQuery.toLowerCase();
   return active
-    .filter(n => n.title.toLowerCase().includes(q) || n.body.toLowerCase().includes(q))
+    .filter(n => n.title.toLowerCase().includes(q) || stripHtml(n.body).toLowerCase().includes(q))
     .sort((a,b) => b.updatedAt - a.updatedAt);
 }
 
@@ -431,7 +533,7 @@ function renderList() {
   list.innerHTML = filtered.map(n => {
     const hasImg = n.media && n.media.some(m => m.type.startsWith('image'));
     const hasVid = n.media && n.media.some(m => m.type.startsWith('video'));
-    const preview = n.body.replace(/\n/g, ' ').slice(0, 120);
+    const preview = stripHtml(n.body).slice(0, 120);
     return `<div class="note-card" onclick="openEditor('${n.id}')">
       <div class="note-title">${highlightMatch(n.title || '（無標題）', q)}</div>
       <div class="note-preview">${highlightMatch(preview, q)}</div>
@@ -450,29 +552,27 @@ function openEditor(id) {
   noteDirty = false;
   const panel = document.getElementById('editorPanel');
   const titleInput = document.getElementById('titleInput');
-  const bodyInput = document.getElementById('bodyInput');
   const deleteBtn = document.getElementById('deleteBtn');
 
   if (id) {
     const note = notes.find(n => n.id === id);
     if (!note) return;
     titleInput.value = note.title;
-    bodyInput.value = note.body;
+    if (editor) editor.commands.setContent(note.body || '');
     renderMediaStrip(note.media || []);
     deleteBtn.style.display = '';
-    // 點開筆記時，記錄 baseline 時間和原始內容
     baselineTimes[id] = note.updatedAt;
-    originalNote = { title: note.title, body: note.body, media: [...(note.media || [])] };
+    originalNote = { title: note.title, body: note.body || '', media: [...(note.media || [])] };
   } else {
     titleInput.value = '';
-    bodyInput.value = '';
+    if (editor) editor.commands.setContent('');
     renderMediaStrip([]);
     deleteBtn.style.display = 'none';
     originalNote = null;
   }
   updateCharCount();
   panel.classList.add('open');
-  setTimeout(() => { if (!titleInput.value) titleInput.focus(); else bodyInput.focus(); }, 300);
+  setTimeout(() => { if (!titleInput.value) titleInput.focus(); else editor && editor.commands.focus(); }, 300);
 }
 
 function closeEditor() {
@@ -491,8 +591,8 @@ function closeEditor() {
     } else if (!currentNoteId) {
       // 新增筆記中途放棄，從 notes 移除
       const titleInput = document.getElementById('titleInput');
-      const bodyInput = document.getElementById('bodyInput');
-      if (!titleInput.value.trim() && !bodyInput.value.trim()) {
+      const body = editor ? editor.getHTML() : '';
+      if (!titleInput.value.trim() && (!body || body === '<p></p>')) {
         // 空的直接關
       }
     }
@@ -506,22 +606,20 @@ function closeEditor() {
 
 function autoSave() {
   const title = document.getElementById('titleInput').value.trim();
-  const body = document.getElementById('bodyInput').value;
+  const body = editor ? editor.getHTML() : '';
+  const bodyText = editor ? editor.getText() : '';
 
-  // 標記有修改（跟原始內容比較）
   if (originalNote !== null) {
     noteDirty = (title !== originalNote.title || body !== originalNote.body);
   } else {
-    noteDirty = !!(title || body);
+    noteDirty = !!(title || bodyText);
   }
 
-  if (!title && !body) return;
+  if (!title && !bodyText) return;
   if (currentNoteId) {
     const note = notes.find(n => n.id === currentNoteId);
     if (note) { note.title = title; note.body = body; }
-    // 不更新 updatedAt，等按儲存才更新
   }
-  // 新筆記暫時不建立，等按儲存再建立
 }
 
 function deleteNote() {
@@ -542,7 +640,6 @@ function deleteNote() {
 
 // ── 自動儲存（300ms debounce）──
 document.getElementById('titleInput').addEventListener('input', debounceSave);
-document.getElementById('bodyInput').addEventListener('input', () => { debounceSave(); updateCharCount(); });
 
 function debounceSave() {
   clearTimeout(saveTimer);
@@ -550,7 +647,7 @@ function debounceSave() {
 }
 
 function updateCharCount() {
-  const len = document.getElementById('bodyInput').value.length;
+  const len = editor ? editor.getText().length : 0;
   document.getElementById('charCount').textContent = len + ' 字';
 }
 
@@ -852,8 +949,9 @@ async function _pushToDrive() {
 // ── 儲存按鈕：比較 baseline，衝突時警告 ──
 async function saveNote() {
   const title = document.getElementById('titleInput').value.trim();
-  const body = document.getElementById('bodyInput').value;
-  if (!title && !body) { showToast('筆記是空的'); return; }
+  const body = editor ? editor.getHTML() : '';
+  const bodyText = editor ? editor.getText().trim() : '';
+  if (!title && !bodyText) { showToast('筆記是空的'); return; }
 
   const now = Date.now();
 
@@ -985,9 +1083,78 @@ document.addEventListener('keydown', e => {
   if ((e.metaKey || e.ctrlKey) && e.key === 'f') { e.preventDefault(); document.getElementById('searchInput').focus(); }
 });
 
+// ── TipTap 工具列函數 ──
+function setHeading(level) {
+  if (!editor) return;
+  const l = parseInt(level);
+  if (l === 0) editor.chain().focus().setParagraph().run();
+  else editor.chain().focus().toggleHeading({ level: l }).run();
+}
+
+function insertTable() {
+  if (!editor) return;
+  editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run();
+}
+
+function updateToolbar() {
+  if (!editor) return;
+  const btns = ['bold','italic','bulletList','orderedList','blockquote'];
+  btns.forEach(name => {
+    const btn = document.getElementById('btn-' + name);
+    if (btn) btn.classList.toggle('active', editor.isActive(name));
+  });
+  const sel = document.getElementById('headingSelect');
+  if (sel) {
+    if (editor.isActive('heading', { level: 1 })) sel.value = '1';
+    else if (editor.isActive('heading', { level: 2 })) sel.value = '2';
+    else if (editor.isActive('heading', { level: 3 })) sel.value = '3';
+    else sel.value = '0';
+  }
+}
+
 // ── 初始化 ──
 loadLocal();
 renderList();
+
+// 初始化 TipTap
+function initEditor() {
+  // TipTap UMD 各模組掛在 window 上的名稱
+  const Editor = window.tiptapCore?.Editor;
+  const StarterKit = window.tiptapStarterKit?.StarterKit;
+  const TextStyle = window.tiptapExtensionTextStyle?.TextStyle;
+  const Color = window.tiptapExtensionColor?.Color;
+  const Table = window.tiptapExtensionTable?.Table;
+  const TableRow = window.tiptapExtensionTableRow?.TableRow;
+  const TableHeader = window.tiptapExtensionTableHeader?.TableHeader;
+  const TableCell = window.tiptapExtensionTableCell?.TableCell;
+  if (!Editor || !StarterKit) { setTimeout(initEditor, 100); return; }
+
+  editor = new Editor({
+    element: document.getElementById('editor'),
+    extensions: [
+      StarterKit,
+      TextStyle,
+      Color,
+      Table.configure({ resizable: true }),
+      TableRow,
+      TableHeader,
+      TableCell,
+    ],
+    content: '',
+    editorProps: {
+      attributes: {
+        'data-placeholder': '開始記錄…',
+      }
+    },
+    onUpdate: () => {
+      debounceSave();
+      updateCharCount();
+      updateToolbar();
+    },
+    onSelectionUpdate: () => { updateToolbar(); }
+  });
+}
+initEditor();
 
 
 </script>
