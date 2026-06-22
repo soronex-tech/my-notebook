@@ -195,10 +195,21 @@
   .ProseMirror blockquote { border-left: 3px solid var(--accent); padding-left: 12px; color: var(--text-muted); margin: 8px 0; }
   .ProseMirror code { background: var(--bg); border-radius: 4px; padding: 1px 5px; font-size: 13px; }
   .ProseMirror pre { background: var(--bg); border-radius: 8px; padding: 12px; overflow-x: auto; }
-  .ProseMirror table { border-collapse: collapse; width: 100%; margin: 8px 0; }
-  .ProseMirror td, .ProseMirror th { border: 1px solid var(--border); padding: 6px 10px; min-width: 60px; }
+  .ProseMirror table { border-collapse: collapse; width: 100%; margin: 8px 0; table-layout: fixed; }
+  .ProseMirror td, .ProseMirror th { border: 1px solid var(--border); padding: 6px 10px; min-width: 40px; position: relative; vertical-align: top; }
   .ProseMirror th { background: var(--bg); font-weight: 600; }
   .ProseMirror .selectedCell { background: var(--accent-light); }
+  .ProseMirror .selectedCell::after { z-index: 2; position: absolute; content: ""; left: 0; right: 0; top: 0; bottom: 0; background: var(--accent-light); opacity: .4; pointer-events: none; }
+  /* 欄寬拖曳把手 */
+  .ProseMirror .column-resize-handle {
+    position: absolute; right: -2px; top: 0; bottom: 0; width: 4px;
+    background: var(--accent); opacity: 0; cursor: col-resize;
+    transition: opacity .15s; z-index: 10;
+  }
+  .ProseMirror:hover .column-resize-handle { opacity: .3; }
+  .ProseMirror .column-resize-handle:hover,
+  .resize-cursor .column-resize-handle { opacity: 1 !important; }
+  .resize-cursor { cursor: col-resize; }
   .ProseMirror hr { border: none; border-top: 1px solid var(--border); margin: 12px 0; }
 
   /* ── 媒體預覽區 ── */
@@ -363,6 +374,7 @@ import { Table } from 'https://esm.sh/@tiptap/extension-table@2.4.0?bundle';
 import { TableRow } from 'https://esm.sh/@tiptap/extension-table-row@2.4.0?bundle';
 import { TableHeader } from 'https://esm.sh/@tiptap/extension-table-header@2.4.0?bundle';
 import { TableCell } from 'https://esm.sh/@tiptap/extension-table-cell@2.4.0?bundle';
+import { TableCellBackground } from 'https://esm.sh/@tiptap/extension-table@2.4.0/src/TableCellBackground?bundle';
 
 window._tiptapModules = { Editor, StarterKit, TextStyle, Color, Table, TableRow, TableHeader, TableCell };
 window._tiptapReady = true;
@@ -1246,13 +1258,16 @@ function tableCmd(cmd) {
   if (!editor) return;
   closeCtxMenu();
   const cmdMap = {
-    addRowBefore: () => editor.chain().focus().addRowBefore().run(),
-    addRowAfter:  () => editor.chain().focus().addRowAfter().run(),
-    deleteRow:    () => editor.chain().focus().deleteRow().run(),
+    addRowBefore:    () => editor.chain().focus().addRowBefore().run(),
+    addRowAfter:     () => editor.chain().focus().addRowAfter().run(),
+    deleteRow:       () => editor.chain().focus().deleteRow().run(),
     addColumnBefore: () => editor.chain().focus().addColumnBefore().run(),
     addColumnAfter:  () => editor.chain().focus().addColumnAfter().run(),
     deleteColumn:    () => editor.chain().focus().deleteColumn().run(),
     deleteTable:     () => editor.chain().focus().deleteTable().run(),
+    mergeCells:      () => editor.chain().focus().mergeCells().run(),
+    splitCell:       () => editor.chain().focus().splitCell().run(),
+    toggleHeader:    () => editor.chain().focus().toggleHeaderRow().run(),
   };
   cmdMap[cmd]?.();
 }
