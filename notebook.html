@@ -302,16 +302,16 @@
   }
   @keyframes spin { to { transform: rotate(360deg); } }
 </style>
-<!-- TipTap via skypack CDN -->
+<!-- TipTap via esm.sh，直接完整 URL，不用 importmap -->
 <script type="module">
-import { Editor } from 'https://cdn.skypack.dev/@tiptap/core@2.6.6';
-import StarterKit from 'https://cdn.skypack.dev/@tiptap/starter-kit@2.6.6';
-import { TextStyle } from 'https://cdn.skypack.dev/@tiptap/extension-text-style@2.6.6';
-import { Color } from 'https://cdn.skypack.dev/@tiptap/extension-color@2.6.6';
-import { Table } from 'https://cdn.skypack.dev/@tiptap/extension-table@2.6.6';
-import { TableRow } from 'https://cdn.skypack.dev/@tiptap/extension-table-row@2.6.6';
-import { TableHeader } from 'https://cdn.skypack.dev/@tiptap/extension-table-header@2.6.6';
-import { TableCell } from 'https://cdn.skypack.dev/@tiptap/extension-table-cell@2.6.6';
+import { Editor } from 'https://esm.sh/@tiptap/core@2.4.0?bundle';
+import StarterKit from 'https://esm.sh/@tiptap/starter-kit@2.4.0?bundle';
+import { TextStyle } from 'https://esm.sh/@tiptap/extension-text-style@2.4.0?bundle';
+import { Color } from 'https://esm.sh/@tiptap/extension-color@2.4.0?bundle';
+import { Table } from 'https://esm.sh/@tiptap/extension-table@2.4.0?bundle';
+import { TableRow } from 'https://esm.sh/@tiptap/extension-table-row@2.4.0?bundle';
+import { TableHeader } from 'https://esm.sh/@tiptap/extension-table-header@2.4.0?bundle';
+import { TableCell } from 'https://esm.sh/@tiptap/extension-table-cell@2.4.0?bundle';
 
 window._tiptapModules = { Editor, StarterKit, TextStyle, Color, Table, TableRow, TableHeader, TableCell };
 window._tiptapReady = true;
