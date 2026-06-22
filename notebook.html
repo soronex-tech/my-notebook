@@ -297,6 +297,28 @@
   .btn-cancel-modal { background: var(--bg); color: var(--text-muted); }
   .btn-confirm-modal { background: var(--accent); color: #fff; }
 
+  /* ── 表格右鍵選單 ── */
+  .ctx-menu {
+    position: fixed; z-index: 500;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; padding: 4px;
+    box-shadow: 0 4px 20px rgba(0,0,0,.15);
+    min-width: 180px;
+    opacity: 0; pointer-events: none; transform: scale(.95);
+    transition: opacity .12s, transform .12s;
+  }
+  .ctx-menu.open { opacity: 1; pointer-events: all; transform: scale(1); }
+  .ctx-item {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 12px; border-radius: 6px; cursor: pointer;
+    font-size: 13px; color: var(--text);
+    transition: background .1s;
+  }
+  .ctx-item:hover { background: var(--bg); }
+  .ctx-item svg { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0; }
+  .ctx-item.danger { color: var(--danger); }
+  .ctx-sep { height: 1px; background: var(--border); margin: 3px 0; }
+
   .toast {
     position: fixed; bottom: 90px; left: 50%; transform: translateX(-50%) translateY(20px);
     background: #1a1a18; color: #fff; padding: 10px 18px;
@@ -467,6 +489,40 @@ console.log('[TipTap] 載入完成');
       <button class="btn-cancel-modal" onclick="closeTableModal()">取消</button>
       <button class="btn-confirm-modal" onclick="confirmInsertTable()">插入</button>
     </div>
+  </div>
+</div>
+
+<!-- 表格右鍵選單 -->
+<div class="ctx-menu" id="ctxMenu">
+  <div class="ctx-item" onclick="tableCmd('addRowBefore')">
+    <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="12" y1="3" x2="12" y2="9"/></svg>
+    在上方插入列
+  </div>
+  <div class="ctx-item" onclick="tableCmd('addRowAfter')">
+    <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="12" y1="15" x2="12" y2="21"/></svg>
+    在下方插入列
+  </div>
+  <div class="ctx-item danger" onclick="tableCmd('deleteRow')">
+    <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="9" y1="9" x2="15" y2="15"/><line x1="15" y1="9" x2="9" y2="15"/></svg>
+    刪除此列
+  </div>
+  <div class="ctx-sep"></div>
+  <div class="ctx-item" onclick="tableCmd('addColumnBefore')">
+    <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="3" y1="12" x2="9" y2="12"/></svg>
+    在左側插入欄
+  </div>
+  <div class="ctx-item" onclick="tableCmd('addColumnAfter')">
+    <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="15" y1="3" x2="15" y2="21"/><line x1="15" y1="12" x2="21" y2="12"/></svg>
+    在右側插入欄
+  </div>
+  <div class="ctx-item danger" onclick="tableCmd('deleteColumn')">
+    <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="12" y1="3" x2="12" y2="21"/><line x1="9" y1="9" x2="15" y2="15"/><line x1="15" y1="9" x2="9" y2="15"/></svg>
+    刪除此欄
+  </div>
+  <div class="ctx-sep"></div>
+  <div class="ctx-item danger" onclick="tableCmd('deleteTable')">
+    <svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M9 6V4h6v2"/></svg>
+    刪除整個表格
   </div>
 </div>
 
@@ -1161,6 +1217,58 @@ function confirmInsertTable() {
   editor.chain().focus().insertTable({ rows: safeRows, cols: safeCols, withHeaderRow: true }).run();
   closeTableModal();
 }
+
+// ── 表格右鍵選單 ──
+let ctxOpen = false;
+
+function openCtxMenu(e) {
+  if (!editor) return;
+  // 只在表格內才顯示
+  const isInTable = editor.isActive('table') ||
+    e.target.closest('table');
+  if (!isInTable) return;
+  e.preventDefault();
+  const menu = document.getElementById('ctxMenu');
+  const x = Math.min(e.clientX, window.innerWidth - 200);
+  const y = Math.min(e.clientY, window.innerHeight - 280);
+  menu.style.left = x + 'px';
+  menu.style.top = y + 'px';
+  menu.classList.add('open');
+  ctxOpen = true;
+}
+
+function closeCtxMenu() {
+  document.getElementById('ctxMenu').classList.remove('open');
+  ctxOpen = false;
+}
+
+function tableCmd(cmd) {
+  if (!editor) return;
+  closeCtxMenu();
+  const cmdMap = {
+    addRowBefore: () => editor.chain().focus().addRowBefore().run(),
+    addRowAfter:  () => editor.chain().focus().addRowAfter().run(),
+    deleteRow:    () => editor.chain().focus().deleteRow().run(),
+    addColumnBefore: () => editor.chain().focus().addColumnBefore().run(),
+    addColumnAfter:  () => editor.chain().focus().addColumnAfter().run(),
+    deleteColumn:    () => editor.chain().focus().deleteColumn().run(),
+    deleteTable:     () => editor.chain().focus().deleteTable().run(),
+  };
+  cmdMap[cmd]?.();
+}
+
+// 綁定右鍵事件到編輯區
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('editor').addEventListener('contextmenu', openCtxMenu);
+});
+
+// 點其他地方關閉選單
+document.addEventListener('click', (e) => {
+  if (ctxOpen && !e.target.closest('#ctxMenu')) closeCtxMenu();
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && ctxOpen) closeCtxMenu();
+});
 
 function updateToolbar() {
   if (!editor) return;
