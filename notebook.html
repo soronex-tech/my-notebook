@@ -268,6 +268,35 @@
   @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
 
   /* ── Toast ── */
+  /* ── 表格設定 Modal ── */
+  .table-modal-bg {
+    position: fixed; inset: 0; background: rgba(0,0,0,.5);
+    z-index: 400; display: flex; align-items: center; justify-content: center;
+    opacity: 0; pointer-events: none; transition: opacity .2s;
+  }
+  .table-modal-bg.open { opacity: 1; pointer-events: all; }
+  .table-modal {
+    background: var(--surface); border-radius: 14px;
+    padding: 24px; width: 260px;
+    box-shadow: 0 8px 32px rgba(0,0,0,.2);
+  }
+  .table-modal h3 { font-size: 15px; font-weight: 600; margin-bottom: 16px; }
+  .table-modal label { font-size: 13px; color: var(--text-muted); display: block; margin-bottom: 4px; }
+  .table-modal input[type=number] {
+    width: 100%; padding: 8px 10px; border: 1px solid var(--border);
+    border-radius: 8px; font-size: 15px; color: var(--text);
+    background: var(--bg); outline: none; margin-bottom: 14px;
+    font-family: var(--font);
+  }
+  .table-modal input[type=number]:focus { border-color: var(--accent); }
+  .table-modal-footer { display: flex; gap: 8px; margin-top: 4px; }
+  .table-modal-footer button {
+    flex: 1; padding: 9px; border-radius: 8px; border: none;
+    font-size: 14px; font-weight: 500; cursor: pointer; font-family: var(--font);
+  }
+  .btn-cancel-modal { background: var(--bg); color: var(--text-muted); }
+  .btn-confirm-modal { background: var(--accent); color: #fff; }
+
   .toast {
     position: fixed; bottom: 90px; left: 50%; transform: translateX(-50%) translateY(20px);
     background: #1a1a18; color: #fff; padding: 10px 18px;
@@ -424,6 +453,21 @@ console.log('[TipTap] 載入完成');
 <div class="lightbox" id="lightbox" onclick="closeLightbox()">
   <button class="lightbox-close" onclick="closeLightbox()">✕</button>
   <div id="lightboxContent"></div>
+</div>
+
+<!-- 表格插入 Modal -->
+<div class="table-modal-bg" id="tableModalBg" onclick="if(event.target===this)closeTableModal()">
+  <div class="table-modal">
+    <h3>插入表格</h3>
+    <label>列數（橫行）</label>
+    <input type="number" id="tableRows" value="3" min="1" max="20">
+    <label>欄數（直列）</label>
+    <input type="number" id="tableCols" value="3" min="1" max="20">
+    <div class="table-modal-footer">
+      <button class="btn-cancel-modal" onclick="closeTableModal()">取消</button>
+      <button class="btn-confirm-modal" onclick="confirmInsertTable()">插入</button>
+    </div>
+  </div>
 </div>
 
 <!-- Toast -->
@@ -1098,7 +1142,24 @@ function setHeading(level) {
 
 function insertTable() {
   if (!editor) return;
-  editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run();
+  document.getElementById('tableRows').value = 3;
+  document.getElementById('tableCols').value = 3;
+  document.getElementById('tableModalBg').classList.add('open');
+  setTimeout(() => document.getElementById('tableRows').focus(), 100);
+}
+
+function closeTableModal() {
+  document.getElementById('tableModalBg').classList.remove('open');
+  editor && editor.commands.focus();
+}
+
+function confirmInsertTable() {
+  const rows = parseInt(document.getElementById('tableRows').value) || 3;
+  const cols = parseInt(document.getElementById('tableCols').value) || 3;
+  const safeRows = Math.min(Math.max(rows, 1), 20);
+  const safeCols = Math.min(Math.max(cols, 1), 20);
+  editor.chain().focus().insertTable({ rows: safeRows, cols: safeCols, withHeaderRow: true }).run();
+  closeTableModal();
 }
 
 function updateToolbar() {
